@@ -1,7 +1,14 @@
-# PRISM · 棱镜
+<p align="center">
+  <img src="docs/screenshots/hero_banner.png" alt="PRISM 顶栏海报" width="100%" />
+</p>
 
 <p align="center">
-  <img src="docs/screenshots/logo_v3.png" alt="PRISM Logo" width="360" />
+  <a href="https://github.com/zhaopeizhao41-ops/PRISM"><img src="https://img.shields.io/badge/PRISM-v0.2.0-FF4D00?style=for-the-badge&logo=target&logoColor=white" alt="PRISM 版本" /></a>
+  <a href="https://www.python.org/"><img src="https://img.shields.io/badge/Python-3.11%20%7C%203.12-111111?style=for-the-badge&logo=python&logoColor=white" alt="Python 版本" /></a>
+  <a href="https://vuejs.org/"><img src="https://img.shields.io/badge/Vue-3.x%20%2B%20Vite-42B883?style=for-the-badge&logo=vuedotjs&logoColor=white" alt="Vue 3" /></a>
+  <a href="https://github.com/zhaopeizhao41-ops/PRISM/blob/main/LICENSE"><img src="https://img.shields.io/badge/%E5%BC%80%E6%BA%90%E5%8D%8F%E8%AE%AE-AGPL--3.0-111111?style=for-the-badge" alt="开源协议" /></a>
+  <img src="https://img.shields.io/badge/%E5%8D%95%E5%85%83%E6%B5%8B%E8%AF%95-129%20%E9%A1%B9%E9%80%9A%E8%BF%87-057A55?style=for-the-badge&logo=pytest&logoColor=white" alt="测试状态" />
+  <img src="https://img.shields.io/badge/%E5%A4%9A%E6%A8%A1%E6%80%81-Vision%20%E8%A7%86%E8%A7%89%E5%B7%B2%E5%B0%B1%E7%BB%AA-6C2BD9?style=for-the-badge&logo=openai&logoColor=white" alt="多模态视觉" />
 </p>
 
 <p align="center">
@@ -13,10 +20,10 @@
 <p align="center">
   <a href="#创作初衷与设计哲学">创作初衷</a> •
   <a href="#核心管线">核心管线</a> •
+  <a href="#全格式资料解析">资料解析</a> •
   <a href="#核心特性">核心特性</a> •
   <a href="#系统架构">系统架构</a> •
   <a href="#快速开始">快速开始</a> •
-  <a href="#技术栈">技术栈</a> •
   <a href="README.md">English README</a>
 </p>
 
@@ -37,37 +44,14 @@
 
 ---
 
-## 产品界面实测
-
-| 01. 个人画像与认知底账 | 02. 人生原型分支折射 |
-|:---:|:---:|
-| ![个人画像](docs/screenshots/profile.png) | ![人生分支](docs/screenshots/branches.png) |
-
-| 03. 多宇宙深度推演与因果状态机 | 04. 多轮平行圆桌与交叉审计 |
-|:---:|:---:|
-| ![深度推演](docs/screenshots/evolution.png) | ![平行圆桌](docs/screenshots/roundtable.png) |
-
----
-
-## 核心特性
-
-- **多模态个人画像深度合成**：融合结构化量化问卷与非结构化私密资料（日记、简历、随笔、聊天记录），按资料来源信度加权，合成版本化且内容哈希盖章的稳定模型。
-- **Character-LLM 亲历情境锚点与防御心理轴**：提取真实的生命记忆锚点与心理防御机制，杜绝角色扁平化与人设漂移，确保推演中的自我始终符合真实性格。
-- **Mem0 增量原子记忆突变管线**：在推演每个阶段执行 `ADD`、`UPDATE`、`DELETE`、`NOOP` 原子记忆操作，实现终身记忆图谱动态演进。
-- **Letta / MemGPT 分层核心工作记忆**：维护 3 大独立记忆块（`persona` 人格 / `human` 他者认知 / `situation` 局势研判），支持智能体在多轮互动中自主自编辑（`append`/`replace`/`set`）。
-- **AI Town 确定性 0-Token 真实感熔断状态机**：物理刚性账本（存款现金流月数、社交张力、身体健康、心理韧性），在发生超支或因果违规时执行确定性阻断，不浪费 LLM Token。
-- **AgentVerse 关系人自主意志与现实施压机制**：模拟重要他人（父母、伴侣、合伙人）的自主诉求与边界测试，关系人会主动施加现实张力并挑战不切实际的幻想。
-- **多轮平行宇宙圆桌激辩（1-4 轮）**：支持多轮交叉质询、针对性反驳与共识收敛，配备新粗野主义轮次分割带与轮次阶段引导。
-- **中立主持人跨轮因果收敛审计**：定量输出收敛指数、宿命必然性、最高杠杆决策支点，一键导出 Markdown 格式的《一页纸人生决策备忘录》。
-- **AntiDriftGuard 防漂移保真守卫**：全自动对推演阶段世界状态与圆桌发言进行基线事实比对与声线一致性校验。
-- **新粗野主义与纸质仪器视觉**：高对比度设计系统、零 Emoji、物理浮起与硬投影交互反馈，支持中英文全量国际化。
-
----
-
 ## 核心管线
 
+<p align="center">
+  <img src="docs/screenshots/architecture_pipeline.png" alt="PRISM 架构流程图" width="100%" />
+</p>
+
 ```
-真实坐标（问卷表单 + 私密日记 / 简历 / 随笔 / 聊天记录）
+真实坐标（Word / Excel / PPT / PDF / 聊天记录 / 随笔日记 / 截图照片）
         │
         ▼
 个人知识图谱                 （Zep Cloud GraphRAG，固定本体）
@@ -93,49 +77,45 @@
 
 ---
 
-## 系统架构
+## 产品界面实测
 
-```
-PRISM/
-├── backend/
-│   ├── app/
-│   │   ├── api/                   # Flask REST API 蓝图
-│   │   │   ├── profile.py         # 个人模型与资料解析
-│   │   │   ├── branch.py          # 5 大原型人生分支生成
-│   │   │   ├── evolution.py       # 逐阶段推演状态机
-│   │   │   ├── roundtable.py      # 多轮圆桌辩论与主持人审计
-│   │   │   └── workbench.py       # 中央工作台集成
-│   │   ├── services/              # 核心智能体与推演引擎
-│   │   │   ├── cognitive_reflection.py  # Stanford GA 认知反思引擎
-│   │   │   ├── realism_circuit_breaker.py # AI Town 确定性真实感熔断器
-│   │   │   ├── stakeholder_pressure.py  # AgentVerse 关系人自主博弈
-│   │   │   ├── character_distiller.py   # Character-LLM 情境与防御轴提炼
-│   │   │   ├── memory_mutator.py        # Mem0 原子记忆突变管道
-│   │   │   ├── working_context.py       # Letta / MemGPT 工作记忆块
-│   │   │   ├── anti_drift_guard.py      # 防漂移保真审计守卫
-│   │   │   ├── evolution_engine.py      # 阶段因果演进引擎
-│   │   │   └── roundtable_engine.py     # 多轮圆桌编排引擎
-│   │   └── utils/                 # LLM 客户端与 Token 精细化管理
-│   └── tests/                     # 121+ Pytest 单元与集成测试
-├── frontend/
-│   ├── src/
-│   │   ├── views/                 # 顶层 SPA 视图
-│   │   │   ├── LifeHomeView.vue         # 项目管理中枢与 Hero 叙事
-│   │   │   ├── ProfileCreateView.vue    # 量化问卷与资料上传
-│   │   │   ├── ProfileView.vue          # 个人画像与关系人人格卡
-│   │   │   ├── BranchesView.vue         # 原型分支与关键假设
-│   │   │   ├── EvolutionView.vue        # 多宇宙深度推演工作台
-│   │   │   ├── CompareView.vue          # 并排 4 维世界状态与收束寄语
-│   │   │   ├── RoundtableView.vue       # 跨宇宙多轮辩论与决策备忘录
-│   │   │   └── WorkbenchView.vue        # 中央手风琴导航与图谱嵌入
-│   │   ├── components/            # 公共 UI 组件
-│   │   │   ├── AppHeader.vue            # 刚性三栏顶部导航栏
-│   │   │   ├── GraphPanel.vue           # D3.js 交互式力导向图谱
-│   │   │   └── LanguageSwitcher.vue     # 中英文国际化切换器
-│   │   └── i18n/                  # Vue I18n 多语言配置
-│   └── dist/                      # 前端生产模式构建产物
-└── locales/                       # 规范多语言翻译源文件 (zh.json, en.json)
-```
+| 01. 个人画像与认知底账 | 02. 人生原型分支折射 |
+|:---:|:---:|
+| ![个人画像](docs/screenshots/profile.png) | ![人生分支](docs/screenshots/branches.png) |
+
+| 03. 多宇宙深度推演与因果状态机 | 04. 多轮平行圆桌与交叉审计 |
+|:---:|:---:|
+| ![深度推演](docs/screenshots/evolution.png) | ![平行圆桌](docs/screenshots/roundtable.png) |
+
+---
+
+<a name="全格式资料解析"></a>
+## 全场景生活资料解析矩阵
+
+PRISM 支持 17 种以上常见个人生活资料与多媒体格式的无门槛直接导入：
+
+| 分类 | 支持格式 | 处理引擎 | 核心场景能力 |
+| :--- | :--- | :--- | :--- |
+| **主流办公文档** | `.docx`, `.doc`, `.pdf` | `python-docx`, `PyMuPDF` | 本地毫秒级提取求职简历、随笔文章、个人自述及表格中的履历信息。 |
+| **表格与财务时间线** | `.xlsx`, `.xls`, `.csv` | `openpyxl`, `csv` | 结构化提取存款账目、开支流水与人生大事件时间表。 |
+| **演示文稿** | `.pptx` | `python-pptx` | 自动提取述职报告、个人规划 PPT 的幻灯片要点与演讲备注。 |
+| **聊天记录与笔记导出** | `.html`, `.json`, `.txt`, `.log`, `.rtf` | `BeautifulSoup4` + 编码自适应 | 自动清洗 HTML 标签，解析微信/QQ 聊天记录流与 Notion/飞书笔记导出包。 |
+| **截图与随拍照片** | `.png`, `.jpg`, `.jpeg`, `.webp` | 多模态 Vision 大模型 (`deepseek-v4-flash-vision-exp` / `qwen-vl` / `gpt-4o`) | 深度 OCR 识别微信聊天长截图、手写日记照片与成绩单/体检单。 |
+
+---
+
+## 核心特性
+
+- **多模态个人画像深度合成**：融合结构化量化问卷与非结构化私密资料，按资料来源信度加权，合成版本化且内容哈希盖章的稳定模型。
+- **Character-LLM 亲历情境锚点与防御心理轴**：提取真实的生命记忆锚点与心理防御机制，杜绝角色扁平化与人设漂移，确保推演中的自我始终符合真实性格。
+- **Mem0 增量原子记忆突变管线**：在推演每个阶段执行 `ADD`、`UPDATE`、`DELETE`、`NOOP` 原子记忆操作，实现终身记忆图谱动态演进。
+- **Letta / MemGPT 分层核心工作记忆**：维护 3 大独立记忆块（`persona` 人格 / `human` 他者认知 / `situation` 局势研判），支持智能体在多轮互动中自主自编辑（`append`/`replace`/`set`）。
+- **AI Town 确定性 0-Token 真实感熔断状态机**：物理刚性账本（存款现金流月数、社交张力、身体健康、心理韧性），在发生超支或因果违规时执行确定性阻断，不浪费 LLM Token。
+- **AgentVerse 关系人自主意志与现实施压机制**：模拟重要他人（父母、伴侣、合伙人）的自主诉求与边界测试，关系人会主动施加现实张力并挑战不切实际的幻想。
+- **多轮平行宇宙圆桌激辩（1-4 轮）**：支持多轮交叉质询、针对性反驳与共识收敛，配备新粗野主义轮次分割带与轮次阶段引导。
+- **中立主持人跨轮因果收敛审计**：定量输出收敛指数、宿命必然性、最高杠杆决策支点，一键导出 Markdown 格式的《一页纸人生决策备忘录》。
+- **AntiDriftGuard 防漂移保真守卫**：全自动对推演阶段世界状态与圆桌发言进行基线事实比对与声线一致性校验。
+- **新粗野主义与纸质仪器视觉**：高对比度设计系统、零 Emoji、物理浮起与硬投影交互反馈，支持中英文全量国际化。
 
 ---
 
@@ -148,7 +128,7 @@ PRISM/
 | **后端服务** | Python 3.11+ / Flask | 高吞吐量 RESTful API |
 | **多智能体架构** | Stanford GA + Letta + Mem0 | 认知反思、自编辑工作记忆与原子记忆突变 |
 | **知识图谱** | Zep Cloud | 基于固定个人本体的 GraphRAG 记忆后端 |
-| **大模型推理** | OpenAI 兼容接口 | 经实测支持 Qwen-Plus、DeepSeek、GPT-4o、Claude |
+| **大模型推理** | OpenAI 兼容接口 | 实测支持 `deepseek-v4-flash-vision-exp`、`qwen-plus`、`gpt-4o` |
 | **存储方案** | 结构化本地 JSON | `uploads/projects/` 下零数据库依赖安全存储 |
 
 ---
@@ -161,7 +141,7 @@ PRISM/
 - **Python**: $\ge 3.11, \le 3.12$
 - **uv**: 现代高性能 Python 包管理器（[安装指南](https://docs.astral.sh/uv/)）
 - **Zep Cloud API Key**: [Zep Cloud 控制台](https://app.getzep.com/)
-- **LLM API Key**: 任何兼容 OpenAI 格式的 API Key（如阿里百炼 DashScope Qwen、DeepSeek 等）
+- **LLM API Key**: 任何兼容 OpenAI 格式的 API Key（如 DeepSeek、阿里百炼 DashScope Qwen 等）
 
 ### 1. 克隆代码仓库
 
@@ -177,8 +157,8 @@ cd PRISM
 ```env
 # LLM 模型配置（兼容 OpenAI 协议）
 LLM_API_KEY=your_llm_api_key_here
-LLM_BASE_URL=https://dashscope.aliyuncs.com/compatible-mode/v1
-LLM_MODEL_NAME=qwen-plus
+LLM_BASE_URL=https://api.deepseek.com/v1
+LLM_MODEL_NAME=deepseek-v4-flash-vision-exp
 
 # Zep Cloud GraphRAG 知识图谱配置
 ZEP_API_KEY=your_zep_api_key_here
