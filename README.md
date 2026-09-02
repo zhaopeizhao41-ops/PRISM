@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="docs/screenshots/hero_banner.png" alt="PRISM Hero Banner" width="100%" />
+  <img src="docs/screenshots/logo_v3.png" alt="PRISM Logo" width="380" />
 </p>
 
 <p align="center">
