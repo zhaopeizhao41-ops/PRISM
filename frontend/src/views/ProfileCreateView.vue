@@ -279,12 +279,29 @@
           @drop.prevent="handleDrop"
           @click="triggerFileInput"
         >
-          <input ref="fileInput" type="file" multiple accept=".pdf,.md,.txt" style="display: none" @change="handleFileSelect" />
+          <input
+            ref="fileInput"
+            type="file"
+            multiple
+            accept=".pdf,.docx,.doc,.xlsx,.xls,.csv,.pptx,.txt,.md,.markdown,.html,.htm,.json,.log,.rtf,.png,.jpg,.jpeg,.webp"
+            style="display: none"
+            @change="handleFileSelect"
+          />
+          <div class="upload-icon-symbol">▲</div>
           <p class="upload-main">{{ t('profile.create.uploadMain') }}</p>
           <p class="upload-sub">{{ t('profile.create.uploadSub') }}</p>
+          <div class="format-badges">
+            <span class="fmt-pill">{{ t('profile.create.fmtWord') }}</span>
+            <span class="fmt-pill">{{ t('profile.create.fmtPdf') }}</span>
+            <span class="fmt-pill">{{ t('profile.create.fmtExcel') }}</span>
+            <span class="fmt-pill">{{ t('profile.create.fmtPpt') }}</span>
+            <span class="fmt-pill">{{ t('profile.create.fmtImage') }}</span>
+            <span class="fmt-pill">{{ t('profile.create.fmtText') }}</span>
+          </div>
         </div>
         <div v-if="selectedFiles.length" class="file-list">
           <div v-for="(f, i) in selectedFiles" :key="i" class="file-item">
+            <span class="file-badge" :class="getFileBadgeClass(f.name)">{{ getFileBadge(f.name) }}</span>
             <span class="file-name">{{ f.name }}</span>
             <span class="file-size">{{ (f.size / 1024).toFixed(1) }} KB</span>
             <button class="btn-mini danger" type="button" @click="selectedFiles.splice(i, 1)">×</button>
@@ -503,6 +520,29 @@ function removeCustomTag(tag) {
   if (idx >= 0) form.self_tags.splice(idx, 1)
 }
 
+function getFileBadge(filename) {
+  const ext = (filename.split('.').pop() || '').toLowerCase()
+  if (['docx', 'doc'].includes(ext)) return 'DOCX'
+  if (ext === 'pdf') return 'PDF'
+  if (['xlsx', 'xls', 'csv'].includes(ext)) return 'XLS'
+  if (ext === 'pptx') return 'PPT'
+  if (['png', 'jpg', 'jpeg', 'webp'].includes(ext)) return 'IMG'
+  if (['html', 'htm'].includes(ext)) return 'HTML'
+  if (ext === 'json') return 'JSON'
+  if (['md', 'markdown'].includes(ext)) return 'MD'
+  return 'TXT'
+}
+
+function getFileBadgeClass(filename) {
+  const ext = (filename.split('.').pop() || '').toLowerCase()
+  if (['docx', 'doc'].includes(ext)) return 'badge-word'
+  if (ext === 'pdf') return 'badge-pdf'
+  if (['xlsx', 'xls', 'csv'].includes(ext)) return 'badge-excel'
+  if (ext === 'pptx') return 'badge-ppt'
+  if (['png', 'jpg', 'jpeg', 'webp'].includes(ext)) return 'badge-img'
+  return 'badge-text'
+}
+
 function triggerFileInput() {
   fileInput.value?.click()
 }
@@ -514,8 +554,16 @@ function handleFileSelect(e) {
 
 function handleDrop(e) {
   isDragOver.value = false
+  const allowedExts = [
+    'pdf', 'docx', 'doc', 'xlsx', 'xls', 'csv', 'pptx',
+    'txt', 'md', 'markdown', 'html', 'htm', 'json', 'log', 'rtf',
+    'png', 'jpg', 'jpeg', 'webp'
+  ]
   for (const f of e.dataTransfer.files) {
-    if (/\.(pdf|md|txt)$/i.test(f.name)) selectedFiles.value.push(f)
+    const ext = (f.name.split('.').pop() || '').toLowerCase()
+    if (allowedExts.includes(ext)) {
+      selectedFiles.value.push(f)
+    }
   }
 }
 
@@ -1124,24 +1172,33 @@ onMounted(async () => {
 }
 
 .upload-zone {
-  border: 1px dashed var(--c-ink-5);
+  border: 1px dashed var(--c-line-strong);
   border-radius: var(--r-md);
-  padding: 24px;
+  padding: 24px 20px;
   text-align: center;
   cursor: pointer;
-  transition: border-color 0.15s;
-  background: var(--c-bg-softer);
+  transition: all 0.15s ease;
+  background: var(--c-bg-softer, #FAF9F6);
   margin-bottom: 12px;
 }
 
 .upload-zone:hover,
 .upload-zone.drag-over {
   border-color: var(--c-brand);
+  background: #FFFDF9;
+  box-shadow: var(--shadow-pop-sm);
+}
+
+.upload-icon-symbol {
+  font-size: 16px;
+  color: var(--c-brand);
+  margin-bottom: 6px;
 }
 
 .upload-main {
   font-size: 14px;
-  font-weight: 600;
+  font-weight: 700;
+  color: var(--c-ink);
 }
 
 .upload-sub {
@@ -1150,10 +1207,30 @@ onMounted(async () => {
   margin-top: 4px;
 }
 
+.format-badges {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  justify-content: center;
+  margin-top: 14px;
+}
+
+.fmt-pill {
+  font-size: 11px;
+  font-family: var(--font-mono, monospace);
+  padding: 3px 8px;
+  border-radius: var(--r-sm);
+  border: 1px solid var(--c-line-strong);
+  background: var(--c-paper);
+  color: var(--c-ink-2);
+  letter-spacing: 0.3px;
+}
+
 .file-list {
   display: flex;
   flex-direction: column;
   gap: 6px;
+  margin-top: 8px;
 }
 
 .file-item {
@@ -1161,9 +1238,57 @@ onMounted(async () => {
   align-items: center;
   gap: 12px;
   font-size: 13px;
-  padding: 6px 10px;
-  border: 1px solid var(--c-line-soft);
+  padding: 8px 12px;
+  border: 1px solid var(--c-line-strong);
   border-radius: var(--r-sm);
+  background: var(--c-paper);
+}
+
+.file-badge {
+  font-size: 10px;
+  font-family: var(--font-mono, monospace);
+  font-weight: 700;
+  padding: 2px 6px;
+  border-radius: var(--r-sm);
+  border: 1px solid var(--c-ink);
+  background: var(--c-paper);
+  letter-spacing: 0.5px;
+}
+
+.file-badge.badge-word {
+  background: #EBF3FF;
+  color: #1A56DB;
+  border-color: #1A56DB;
+}
+
+.file-badge.badge-pdf {
+  background: #FDF2F2;
+  color: #E02424;
+  border-color: #E02424;
+}
+
+.file-badge.badge-excel {
+  background: #EDFDF5;
+  color: #057A55;
+  border-color: #057A55;
+}
+
+.file-badge.badge-ppt {
+  background: #FFF8F1;
+  color: #D03801;
+  border-color: #D03801;
+}
+
+.file-badge.badge-img {
+  background: #F6F5FF;
+  color: #6C2BD9;
+  border-color: #6C2BD9;
+}
+
+.file-badge.badge-text {
+  background: var(--c-bg-softer);
+  color: var(--c-ink-2);
+  border-color: var(--c-line-strong);
 }
 
 .file-name {

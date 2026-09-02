@@ -129,8 +129,8 @@
       "fTimeRange": "时间范围（可选）",
       "phTimeRange": "如：2024全年",
       "phPaste": "在此粘贴日记 / 感想 / 聊天记录…",
-      "uploadMain": "点击或拖拽上传文件",
-      "uploadSub": "支持 pdf / md / txt",
+      "uploadMain": "点击或拖拽上传个人生活资料",
+      "uploadSub": "支持 Word (.docx) / PDF (.pdf) / 表格 (.xlsx, .csv) / PPT (.pptx) / 截图照片 (.png, .jpg) / 聊天与随笔 (.txt, .html, .json)",
       "existingMaterials": "已提交资料",
       "emptyWarn": "请先填写表单或提交至少一份资料",
       "submit": "生成画像",
@@ -147,7 +147,13 @@
       "big5_conscientiousness": "尽责性 (Conscientiousness)",
       "big5_extraversion": "外向性 (Extraversion)",
       "big5_agreeableness": "宜人性 (Agreeableness)",
-      "big5_neuroticism": "情绪敏感度 (Neuroticism)"
+      "big5_neuroticism": "情绪敏感度 (Neuroticism)",
+      "fmtWord": "Word (.docx)",
+      "fmtPdf": "PDF (.pdf)",
+      "fmtExcel": "表格 (.xlsx, .csv)",
+      "fmtPpt": "PPT (.pptx)",
+      "fmtImage": "截图照片 (.png, .jpg)",
+      "fmtText": "聊天与随笔 (.txt, .html, .json)"
     },
     "view": {
       "loading": "加载画像中…",

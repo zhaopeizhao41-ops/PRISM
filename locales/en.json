@@ -129,8 +129,8 @@
       "fTimeRange": "Time range (optional)",
       "phTimeRange": "Time span the materials cover",
       "phPaste": "Paste diaries / reflections / chat logs here…",
-      "uploadMain": "Click or drag to upload files",
-      "uploadSub": "pdf / md / txt supported",
+      "uploadMain": "Click or drag to upload personal materials",
+      "uploadSub": "Supports Word (.docx) / PDF (.pdf) / Excel (.xlsx, .csv) / PPT (.pptx) / Images (.png, .jpg) / Chat & Notes (.txt, .html, .json)",
       "existingMaterials": "Submitted materials",
       "emptyWarn": "Please fill the form or submit at least one material",
       "submit": "Generate Profile",
@@ -147,7 +147,13 @@
       "big5_conscientiousness": "Conscientiousness",
       "big5_extraversion": "Extraversion",
       "big5_agreeableness": "Agreeableness",
-      "big5_neuroticism": "Neuroticism"
+      "big5_neuroticism": "Neuroticism",
+      "fmtWord": "Word (.docx)",
+      "fmtPdf": "PDF (.pdf)",
+      "fmtExcel": "Spreadsheets (.xlsx, .csv)",
+      "fmtPpt": "Presentations (.pptx)",
+      "fmtImage": "Screenshots & Photos (.png, .jpg)",
+      "fmtText": "Chat & Notes (.txt, .html, .json)"
     },
     "view": {
       "loading": "Loading profile…",
