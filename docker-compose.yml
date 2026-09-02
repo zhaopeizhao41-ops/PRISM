@@ -1,0 +1,11 @@
+services:
+  prism:
+    image: ghcr.io/zhaopeizhao41-ops/prism:latest
+    container_name: prism
+    env_file:
+      - .env
+    ports:
+      - "5001:5001"
+    restart: unless-stopped
+    volumes:
+      - ./backend/uploads:/app/backend/uploads

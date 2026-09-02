@@ -1,0 +1,55 @@
+[project]
+name = "prism-backend"
+version = "0.1.0"
+description = "PRISM - 个人人生推演引擎：人生充满混沌，但我们始终拥有选择"
+requires-python = ">=3.11,<3.13"
+license = { text = "AGPL-3.0" }
+authors = [
+    { name = "PRISM Team" }
+]
+
+dependencies = [
+    # 核心框架
+    "flask>=3.0.0",
+    "flask-cors>=6.0.0",
+    
+    # LLM 相关
+    "openai>=1.0.0",
+    
+    # Zep Cloud
+    "zep-cloud==3.25.0",
+    "httpx>=0.27.0",
+
+    # 文件处理
+    "PyMuPDF>=1.24.0",
+    # 编码检测（支持非UTF-8编码的文本文件）
+    "charset-normalizer>=3.0.0",
+    "chardet>=5.0.0",
+    
+    # 工具库
+    "python-dotenv>=1.0.0",
+    "pydantic>=2.0.0",
+
+    # 生产部署（gunicorn 多线程，单 worker 保持 TaskManager 内存态一致）
+    "gunicorn>=21.0.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0.0",
+    "pytest-asyncio>=0.23.0",
+    "pipreqs>=0.5.0",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[dependency-groups]
+dev = [
+    "pytest>=8.0.0",
+    "pytest-asyncio>=0.23.0",
+]
+
+[tool.hatch.build.targets.wheel]
+packages = ["app"]

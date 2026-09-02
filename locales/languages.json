@@ -1,0 +1,10 @@
+{
+  "zh": {
+    "label": "中文",
+    "llmInstruction": "请使用中文回答。"
+  },
+  "en": {
+    "label": "English",
+    "llmInstruction": "Please respond in English."
+  }
+}
