@@ -13,6 +13,18 @@
           </div>
         </header>
 
+        <section v-if="!loading && nextAction" class="next-action-panel" :class="`tone-${nextAction.tone}`">
+          <div class="next-action-mark" aria-hidden="true">→</div>
+          <div class="next-action-copy">
+            <div class="next-action-label">{{ t('workbench.nextAction.label') }}</div>
+            <h2>{{ nextAction.title }}</h2>
+            <p>{{ nextAction.description }}</p>
+          </div>
+          <button class="link-btn primary next-action-btn" type="button" @click="goToNextAction">
+            {{ nextAction.cta }} →
+          </button>
+        </section>
+
         <div v-if="loading" class="state-box">{{ t('common.loading') }}</div>
 
         <template v-else>
@@ -415,6 +427,74 @@ const evolvingCount = computed(() =>
   sessions.value.filter(s => s.status === 'active' && s.stages_done < s.stage_count).length
 )
 
+// 根据项目实际进度给出唯一的下一步，避免用户在流程页之间来回寻找入口。
+const nextAction = computed(() => {
+  if (!model.value) {
+    return {
+      tone: 'start',
+      title: t('workbench.nextAction.profileTitle'),
+      description: t('workbench.nextAction.profileDescription'),
+      cta: t('workbench.nextAction.profileCta'),
+      path: `/profile/create?project=${encodeURIComponent(props.projectId)}`,
+    }
+  }
+
+  const active = sessions.value.find(s =>
+    s.status === 'active' && Number(s.stages_done || 0) < Number(s.stage_count || 0)
+  )
+  if (active) {
+    return {
+      tone: 'continue',
+      title: t('workbench.nextAction.evolutionTitle'),
+      description: t('workbench.nextAction.evolutionDescription'),
+      cta: t('workbench.nextAction.evolutionCta'),
+      path: `/evolution/${active.session_id}`,
+    }
+  }
+
+  if (!branches.value.length) {
+    return {
+      tone: 'start',
+      title: t('workbench.nextAction.branchesTitle'),
+      description: t('workbench.nextAction.branchesDescription'),
+      cta: t('workbench.nextAction.branchesCta'),
+      path: `/branches/${props.projectId}`,
+    }
+  }
+
+  if (!sessions.value.length) {
+    return {
+      tone: 'continue',
+      title: t('workbench.nextAction.evolutionStartTitle'),
+      description: t('workbench.nextAction.evolutionStartDescription'),
+      cta: t('workbench.nextAction.evolutionStartCta'),
+      path: `/branches/${props.projectId}`,
+    }
+  }
+
+  if (sessions.value.length >= 2 && !roundtableCount.value) {
+    return {
+      tone: 'compare',
+      title: t('workbench.nextAction.compareTitle'),
+      description: t('workbench.nextAction.compareDescription'),
+      cta: t('workbench.nextAction.compareCta'),
+      path: `/compare/${props.projectId}`,
+    }
+  }
+
+  return {
+    tone: 'review',
+    title: t('workbench.nextAction.roundtableTitle'),
+    description: t('workbench.nextAction.roundtableDescription'),
+    cta: t('workbench.nextAction.roundtableCta'),
+    path: `/roundtable/${props.projectId}`,
+  }
+})
+
+function goToNextAction() {
+  if (nextAction.value?.path) router.push(nextAction.value.path)
+}
+
 const basicLine = computed(() => {
   const m = model.value
   if (!m) return ''
@@ -518,9 +598,9 @@ async function loadWorkbench() {
   loading.value = true
   try {
     const [modelRes, sessionRes, projectsRes, branchRes, rtRes] = await Promise.all([
-      getPersonalModel(props.projectId),
-      listEvolutionSessions(props.projectId),
-      getProfileProjects(),
+      getPersonalModel(props.projectId).catch(() => ({ data: null })),
+      listEvolutionSessions(props.projectId).catch(() => ({ data: [] })),
+      getProfileProjects().catch(() => ({ data: [] })),
       getBranches(props.projectId).catch(() => ({ data: {} })),
       listRoundtables(props.projectId).catch(() => ({ data: [] })),
     ])
@@ -800,6 +880,67 @@ onMounted(async () => {
   margin-top: 6px;
   color: var(--c-ink-4);
   font-size: 13px;
+}
+
+.next-action-panel {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 16px;
+  margin: 0 0 22px;
+  padding: 16px 18px;
+  border: 1px solid var(--c-ink);
+  border-left: 6px solid var(--c-brand);
+  background: var(--c-bg-softer);
+  box-shadow: var(--shadow-pop-sm);
+}
+
+.next-action-panel.tone-compare {
+  border-left-color: var(--a-balanced);
+}
+
+.next-action-panel.tone-review {
+  border-left-color: var(--c-ink-3);
+}
+
+.next-action-mark {
+  display: grid;
+  place-items: center;
+  width: 38px;
+  height: 38px;
+  border: 1px solid currentColor;
+  color: var(--c-brand);
+  font-size: 22px;
+  font-weight: 700;
+}
+
+.next-action-copy {
+  min-width: 0;
+}
+
+.next-action-label {
+  color: var(--c-brand);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 1.5px;
+  text-transform: uppercase;
+}
+
+.next-action-copy h2 {
+  margin: 3px 0 4px;
+  font-size: 17px;
+  line-height: 1.3;
+}
+
+.next-action-copy p {
+  margin: 0;
+  color: var(--c-ink-3);
+  font-size: 12px;
+  line-height: 1.55;
+}
+
+.next-action-btn {
+  white-space: nowrap;
 }
 
 .header-actions {
@@ -1628,6 +1769,14 @@ onMounted(async () => {
     flex-wrap: wrap;
     gap: 10px;
     padding: 12px 16px;
+  }
+  .next-action-panel {
+    grid-template-columns: auto minmax(0, 1fr);
+    align-items: start;
+  }
+  .next-action-btn {
+    grid-column: 2;
+    justify-self: start;
   }
   /* 极窄时换行，switcher 内容宽度不再全宽拉伸（避免与语言下拉重叠） */
   .fork-options {
