@@ -116,7 +116,10 @@ def generate_cards():
     _, model = loaded
 
     task_manager = TaskManager()
-    task_id = task_manager.create_task(f"关系人 Agent 生成: {project.name}")
+    task_id = task_manager.create_task(
+        f"关系人 Agent 生成: {project.name}",
+        metadata={"project_id": project_id, "kind": "relationship_generation"},
+    )
     logger.info(
         f"启动人格卡生成: project={project_id}, task={task_id}, persons={person_refs}"
     )

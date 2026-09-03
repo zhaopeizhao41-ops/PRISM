@@ -493,6 +493,19 @@
       "roundtableDescription": "Let parallel selves and key relations cross-examine the choice and surface actions.",
       "roundtableCta": "Open roundtable"
     },
+    "taskCenter": {
+      "title": "Background tasks",
+      "hint": "Status persists after refresh",
+      "cancel": "Cancel",
+      "cancelling": "Cancelling…",
+      "status": {
+        "pending": "Queued",
+        "processing": "Processing",
+        "failed": "Failed",
+        "stale": "Expired",
+        "cancelled": "Cancelled"
+      }
+    },
     "viewProfile": "View profile",
     "enterRoundtable": "Enter roundtable",
     "startRoundtable": "Start roundtable",

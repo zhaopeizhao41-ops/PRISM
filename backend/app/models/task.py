@@ -311,12 +311,20 @@ class TaskManager:
             error=error
         )
     
-    def list_tasks(self, task_type: Optional[str] = None) -> list:
-        """列出任务"""
+    def list_tasks(self, task_type: Optional[str] = None, project_id: Optional[str] = None) -> list:
+        """列出任务，可按项目元数据过滤。"""
         with self._task_lock:
+            # A second worker may have written newer task state since the
+            # singleton was initialized; merge it before serving a listing.
+            self._merge_persisted_locked()
             tasks = list(self._tasks.values())
             if task_type:
                 tasks = [t for t in tasks if t.task_type == task_type]
+            if project_id:
+                tasks = [
+                    t for t in tasks
+                    if (t.metadata or {}).get("project_id") == project_id
+                ]
             return [t.to_dict() for t in sorted(tasks, key=lambda x: x.created_at, reverse=True)]
     
     def cleanup_old_tasks(self, max_age_hours: int = 24):

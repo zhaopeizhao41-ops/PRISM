@@ -25,6 +25,36 @@
           </button>
         </section>
 
+        <section v-if="!loading && taskCenterItems.length" class="task-center" aria-live="polite">
+          <div class="task-center-head">
+            <span class="task-center-title">{{ t('workbench.taskCenter.title') }}</span>
+            <span class="task-center-hint">{{ t('workbench.taskCenter.hint') }}</span>
+          </div>
+          <div v-for="task in taskCenterItems" :key="task.task_id" class="task-row" :class="`task-${task.status}`">
+            <div class="task-row-main">
+              <span class="task-status-dot" aria-hidden="true"></span>
+              <span class="task-name">{{ task.task_type }}</span>
+              <span class="task-status">{{ taskStatusLabel(task.status) }}</span>
+            </div>
+            <div class="task-row-meta">
+              <div class="task-progress-track" aria-hidden="true">
+                <div class="task-progress-fill" :style="{ width: `${Math.max(0, Math.min(100, Number(task.progress || 0)))}%` }"></div>
+              </div>
+              <span class="task-progress-value">{{ task.progress || 0 }}%</span>
+              <button
+                v-if="['pending', 'processing'].includes(task.status)"
+                class="task-cancel-btn"
+                type="button"
+                :disabled="cancellingTaskId === task.task_id"
+                @click="cancelProjectTask(task.task_id)"
+              >
+                {{ cancellingTaskId === task.task_id ? t('workbench.taskCenter.cancelling') : t('workbench.taskCenter.cancel') }}
+              </button>
+            </div>
+            <p v-if="task.message || task.error" class="task-message">{{ task.message || task.error }}</p>
+          </div>
+        </section>
+
         <div v-if="loading" class="state-box">{{ t('common.loading') }}</div>
 
         <template v-else>
@@ -352,12 +382,12 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted, watch } from 'vue'
+import { ref, computed, onMounted, onBeforeUnmount, watch } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import AppHeader from '../components/AppHeader.vue'
 import GraphPanel from '../components/GraphPanel.vue'
-import { getProject, getGraphData } from '../api/graph'
+import { getProject, getGraphData, listProjectTasks, cancelTask } from '../api/graph'
 import { getPersonalModel, getProfileProjects } from '../api/profile'
 import { getBranches } from '../api/branch'
 import { listRoundtables } from '../api/roundtable'
@@ -392,6 +422,9 @@ const roundtableCount = ref(0)
 const branches = ref([])
 const roundtables = ref([])
 const sessions = ref([])
+const projectTasks = ref([])
+const cancellingTaskId = ref('')
+let taskPollTimer = null
 const activeSessionId = ref('')
 const activeSession = ref(null)
 
@@ -426,6 +459,57 @@ const dims = [
 const evolvingCount = computed(() =>
   sessions.value.filter(s => s.status === 'active' && s.stages_done < s.stage_count).length
 )
+
+const taskCenterItems = computed(() => projectTasks.value
+  .filter(task => task && task.status !== 'completed')
+  .slice(0, 5))
+
+const hasActiveProjectTasks = computed(() => projectTasks.value.some(task =>
+  task && ['pending', 'processing'].includes(task.status)
+))
+
+function taskStatusLabel(status) {
+  const key = `workbench.taskCenter.status.${status}`
+  return te(key) ? t(key) : status
+}
+
+async function cancelProjectTask(taskId) {
+  if (!taskId || cancellingTaskId.value) return
+  cancellingTaskId.value = taskId
+  try {
+    const res = await cancelTask(taskId)
+    const updated = res.data
+    const index = projectTasks.value.findIndex(task => task.task_id === taskId)
+    if (index >= 0 && updated) projectTasks.value[index] = updated
+  } catch (e) {
+    console.error('Failed to cancel task', e)
+  } finally {
+    cancellingTaskId.value = ''
+  }
+}
+
+function stopTaskPolling() {
+  if (taskPollTimer) {
+    clearTimeout(taskPollTimer)
+    taskPollTimer = null
+  }
+}
+
+function scheduleTaskPolling() {
+  stopTaskPolling()
+  if (!hasActiveProjectTasks.value) return
+  taskPollTimer = setTimeout(async () => {
+    try {
+      const res = await listProjectTasks(props.projectId)
+      projectTasks.value = res.data || []
+    } catch (e) {
+      // A transient task-list error should not interrupt the main workbench.
+      console.debug('Task center refresh failed', e)
+    } finally {
+      scheduleTaskPolling()
+    }
+  }, 4000)
+}
 
 // 根据项目实际进度给出唯一的下一步，避免用户在流程页之间来回寻找入口。
 const nextAction = computed(() => {
@@ -597,17 +681,20 @@ function statusLabel(key) {
 async function loadWorkbench() {
   loading.value = true
   try {
-    const [modelRes, sessionRes, projectsRes, branchRes, rtRes] = await Promise.all([
+    const [modelRes, sessionRes, projectsRes, branchRes, rtRes, tasksRes] = await Promise.all([
       getPersonalModel(props.projectId).catch(() => ({ data: null })),
       listEvolutionSessions(props.projectId).catch(() => ({ data: [] })),
       getProfileProjects().catch(() => ({ data: [] })),
       getBranches(props.projectId).catch(() => ({ data: {} })),
       listRoundtables(props.projectId).catch(() => ({ data: [] })),
+      listProjectTasks(props.projectId).catch(() => ({ data: [] })),
     ])
     model.value = modelRes.data?.model || modelRes.data || null
     sessions.value = sessionRes.data || []
     branches.value = branchRes.data?.branches || []
     roundtables.value = rtRes.data || []
+    projectTasks.value = tasksRes.data || []
+    scheduleTaskPolling()
     const proj = (projectsRes.data || []).find(p => p.project_id === props.projectId)
     roundtableCount.value = roundtables.value.length || proj?.roundtable_count || 0
     // 智能默认展开最高进展步骤
@@ -750,6 +837,8 @@ onMounted(async () => {
     loadGraph()
   }
 })
+
+onBeforeUnmount(stopTaskPolling)
 </script>
 
 <style scoped>
@@ -941,6 +1030,142 @@ onMounted(async () => {
 
 .next-action-btn {
   white-space: nowrap;
+}
+
+.task-center {
+  margin: 0 0 22px;
+  border: 1px solid var(--c-line-strong);
+  background: var(--c-bg-softer);
+}
+
+.task-center-head {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  padding: 10px 14px;
+  border-bottom: 1px solid var(--c-line);
+}
+
+.task-center-title {
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.task-center-hint {
+  color: var(--c-ink-4);
+  font-size: 11px;
+}
+
+.task-row {
+  padding: 10px 14px;
+  border-bottom: 1px solid var(--c-line-soft);
+}
+
+.task-row:last-child {
+  border-bottom: none;
+}
+
+.task-row-main,
+.task-row-meta {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.task-row-meta {
+  margin-top: 7px;
+}
+
+.task-status-dot {
+  width: 7px;
+  height: 7px;
+  flex: 0 0 7px;
+  border-radius: 50%;
+  background: var(--c-ink-4);
+}
+
+.task-processing .task-status-dot,
+.task-pending .task-status-dot {
+  background: var(--c-brand);
+  animation: pulse 1.4s ease-in-out infinite;
+}
+
+.task-failed .task-status-dot,
+.task-stale .task-status-dot {
+  background: var(--a-aggressive);
+}
+
+.task-cancelled .task-status-dot {
+  background: var(--c-ink-4);
+}
+
+.task-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.task-status {
+  flex: 0 0 auto;
+  color: var(--c-ink-4);
+  font-size: 11px;
+}
+
+.task-progress-track {
+  flex: 1;
+  height: 5px;
+  min-width: 80px;
+  background: var(--c-line);
+}
+
+.task-progress-fill {
+  height: 100%;
+  background: var(--c-brand);
+  transition: width var(--dur-fast);
+}
+
+.task-failed .task-progress-fill,
+.task-stale .task-progress-fill {
+  background: var(--a-aggressive);
+}
+
+.task-progress-value {
+  flex: 0 0 34px;
+  color: var(--c-ink-3);
+  font-size: 11px;
+  text-align: right;
+}
+
+.task-cancel-btn {
+  flex: 0 0 auto;
+  border: 1px solid var(--c-line-strong);
+  background: var(--c-paper);
+  color: var(--c-ink-3);
+  padding: 3px 8px;
+  font-family: inherit;
+  font-size: 11px;
+  cursor: pointer;
+}
+
+.task-cancel-btn:hover:not(:disabled) {
+  border-color: var(--c-brand);
+  color: var(--c-brand);
+}
+
+.task-cancel-btn:disabled {
+  cursor: wait;
+  opacity: 0.55;
+}
+
+.task-message {
+  margin: 6px 0 0 15px;
+  color: var(--c-ink-4);
+  font-size: 11px;
+  line-height: 1.45;
+  overflow-wrap: anywhere;
 }
 
 .header-actions {

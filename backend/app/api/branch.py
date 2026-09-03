@@ -74,7 +74,10 @@ def generate_branches():
         branch_count = 5
 
     task_manager = TaskManager()
-    task_id = task_manager.create_task(f"人生分支生成: {project.name}")
+    task_id = task_manager.create_task(
+        f"人生分支生成: {project.name}",
+        metadata={"project_id": project_id, "kind": "branch_generation"},
+    )
     logger.info(f"启动分支生成: project={project_id}, task={task_id}, count={branch_count}")
 
     current_locale = get_locale()

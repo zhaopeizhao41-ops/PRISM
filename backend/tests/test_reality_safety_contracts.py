@@ -1,3 +1,5 @@
+import uuid
+
 from app.services.profile_materials import canonicalize_goals, free_material_to_text, build_evidence_index
 from app.services.profile_synthesizer import _backfill_evidence_refs
 from app.models.task import TaskManager, TaskStatus
@@ -94,3 +96,28 @@ def test_cancelled_task_is_terminal_and_cannot_be_resurrected():
     assert manager.is_cancelled(task_id)
     assert manager.update_task(task_id, status=TaskStatus.PROCESSING, progress=10) is False
     assert manager.get_task(task_id).status == TaskStatus.CANCELLED
+
+
+def test_task_listing_filters_by_project_metadata():
+    manager = TaskManager()
+    project_id = f"task-filter-{uuid.uuid4().hex}"
+    own_task = manager.create_task(
+        "自己的任务",
+        metadata={"project_id": project_id, "kind": "profile_model"},
+    )
+    other_task = manager.create_task(
+        "其他项目任务",
+        metadata={"project_id": f"other-{uuid.uuid4().hex}", "kind": "branch_generation"},
+    )
+
+    try:
+        listed = manager.list_tasks(project_id=project_id)
+        assert [task["task_id"] for task in listed] == [own_task]
+        assert listed[0]["metadata"]["kind"] == "profile_model"
+    finally:
+        with manager._task_lock:
+            manager._tasks.pop(own_task, None)
+            manager._tasks.pop(other_task, None)
+            manager._cancel_events.pop(own_task, None)
+            manager._cancel_events.pop(other_task, None)
+            manager._persist_locked()

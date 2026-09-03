@@ -510,7 +510,10 @@ def build_profile_graph():
     chunk_overlap = data.get('chunk_overlap', Config.DEFAULT_CHUNK_OVERLAP)
 
     task_manager = TaskManager()
-    task_id = task_manager.create_task(f"个人图谱构建: {project.name}")
+    task_id = task_manager.create_task(
+        f"个人图谱构建: {project.name}",
+        metadata={"project_id": project_id, "kind": "profile_graph"},
+    )
     project.status = ProjectStatus.GRAPH_BUILDING
     project.graph_build_task_id = task_id
     ProjectManager.save_project(project)
@@ -689,7 +692,10 @@ def generate_personal_model():
         }), 400
 
     task_manager = TaskManager()
-    task_id = task_manager.create_task(f"{'文学分析' if scope == 'literary' else '画像合成'}: {project.name}")
+    task_id = task_manager.create_task(
+        f"{'文学分析' if scope == 'literary' else '画像合成'}: {project.name}",
+        metadata={"project_id": project_id, "kind": "literary_analysis" if scope == "literary" else "profile_model", "scope": scope},
+    )
     logger.info(f"启动画像合成: project={project_id}, task={task_id}")
 
     graph_id = selected_graph

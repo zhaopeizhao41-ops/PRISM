@@ -435,7 +435,10 @@ def _build_graph_impl():
         
         # 创建异步任务
         task_manager = TaskManager()
-        task_id = task_manager.create_task(f"构建图谱: {graph_name}")
+        task_id = task_manager.create_task(
+            f"构建图谱: {graph_name}",
+            metadata={"project_id": project_id, "kind": "graph_build"},
+        )
         logger.info(f"创建图谱构建任务: task_id={task_id}, project_id={project_id}")
         
         # 更新项目状态
@@ -671,9 +674,9 @@ def cancel_task(task_id: str):
 @graph_bp.route('/tasks', methods=['GET'])
 def list_tasks():
     """
-    列出所有任务
+    列出任务；传入 project_id 时仅返回该项目的任务。
     """
-    tasks = TaskManager().list_tasks()
+    tasks = TaskManager().list_tasks(project_id=request.args.get("project_id") or None)
     
     return jsonify({
         "success": True,

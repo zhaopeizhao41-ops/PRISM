@@ -42,6 +42,29 @@ export function getTaskStatus(taskId) {
 }
 
 /**
+ * 获取项目的长任务状态（工作台任务中心使用）
+ * @param {String} projectId
+ */
+export function listProjectTasks(projectId) {
+  return service({
+    url: '/api/graph/tasks',
+    method: 'get',
+    params: { project_id: projectId }
+  })
+}
+
+/**
+ * 取消项目任务
+ * @param {String} taskId
+ */
+export function cancelTask(taskId) {
+  return service({
+    url: `/api/graph/task/${taskId}/cancel`,
+    method: 'post'
+  })
+}
+
+/**
  * 获取图谱数据
  * @param {String} graphId - 图谱ID
  * @returns {Promise}

@@ -493,6 +493,19 @@
       "roundtableDescription": "让不同的你和重要关系人交叉质询，整理出可行动的结论。",
       "roundtableCta": "进入圆桌"
     },
+    "taskCenter": {
+      "title": "后台任务",
+      "hint": "状态会在刷新后保留",
+      "cancel": "取消",
+      "cancelling": "取消中…",
+      "status": {
+        "pending": "排队中",
+        "processing": "处理中",
+        "failed": "失败",
+        "stale": "已过期",
+        "cancelled": "已取消"
+      }
+    },
     "viewProfile": "查看画像",
     "enterRoundtable": "进入圆桌",
     "startRoundtable": "开启圆桌对话",
