@@ -221,6 +221,51 @@
           </div>
         </section>
 
+        <!-- 历史画像版本：先查看变化，再决定是否继续更新 -->
+        <section v-if="!isLiterary && versions.length > 1" class="profile-card version-card">
+          <div class="card-label">{{ t('profile.view.versionCompareTitle') }}</div>
+          <p class="version-compare-note">{{ t('profile.view.versionCompareNote') }}</p>
+          <div class="version-compare-controls">
+            <label>
+              <span>{{ t('profile.view.versionFrom') }}</span>
+              <select v-model.number="versionFrom">
+                <option v-for="version in versions" :key="`from-${version}`" :value="version">v{{ version }}</option>
+              </select>
+            </label>
+            <span class="version-arrow" aria-hidden="true">→</span>
+            <label>
+              <span>{{ t('profile.view.versionTo') }}</span>
+              <select v-model.number="versionTo">
+                <option v-for="version in versions" :key="`to-${version}`" :value="version">v{{ version }}</option>
+              </select>
+            </label>
+            <button class="version-compare-btn" type="button" :disabled="versionCompareLoading || versionFrom === versionTo" @click="loadVersionComparison">
+              {{ versionCompareLoading ? t('profile.view.versionComparing') : t('profile.view.compareVersions') }}
+            </button>
+          </div>
+          <p v-if="versionCompareError" class="version-compare-error" role="alert">{{ versionCompareError }}</p>
+          <div v-if="versionDiff" class="version-diff" aria-live="polite">
+            <div class="version-diff-summary">
+              {{ t('profile.view.versionChangeCount', { n: versionDiff.changes.length, from: versionDiff.from_version, to: versionDiff.to_version }) }}
+            </div>
+            <div v-if="!versionDiff.changes.length" class="version-diff-empty">{{ t('profile.view.versionNoChanges') }}</div>
+            <div v-else class="version-change-list">
+              <article v-for="change in versionDiff.changes" :key="`${change.path}-${change.kind}`" class="version-change">
+                <div class="version-change-head">
+                  <code>{{ change.path }}</code>
+                  <span class="version-change-kind" :class="`kind-${change.kind}`">{{ t(`profile.view.versionChange.${change.kind}`) }}</span>
+                </div>
+                <div class="version-change-values">
+                  <span>{{ formatVersionValue(change.before) }}</span>
+                  <span aria-hidden="true">→</span>
+                  <span>{{ formatVersionValue(change.after) }}</span>
+                </div>
+              </article>
+            </div>
+            <p v-if="versionDiff.truncated" class="version-diff-warning">{{ t('profile.view.versionDiffTruncated') }}</p>
+          </div>
+        </section>
+
         <!-- 卡片4：关系人 Agent -->
         <section v-if="!isLiterary" class="profile-card agents-card">
           <div class="card-label">{{ t('relationship.title') }}</div>
@@ -396,7 +441,7 @@ import { useRouter, useRoute } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import AppHeader from '../components/AppHeader.vue'
 import EvidenceDrawer from '../components/EvidenceDrawer.vue'
-import { getPersonalModel, getLiteraryAnalysis, listMaterials } from '../api/profile'
+import { getPersonalModel, getLiteraryAnalysis, listMaterials, comparePersonalModelVersions } from '../api/profile'
 import {
   getRelationshipCandidates,
   generateRelationshipAgents,
@@ -419,6 +464,11 @@ const loading = ref(true)
 const loadError = ref('')
 const model = ref(null)
 const versions = ref([])
+const versionFrom = ref(null)
+const versionTo = ref(null)
+const versionDiff = ref(null)
+const versionCompareLoading = ref(false)
+const versionCompareError = ref('')
 const detailsOpen = ref(false)
 const isLiterary = computed(() => route.query.scope === 'literary')
 const materials = ref([])
@@ -745,6 +795,10 @@ onMounted(async () => {
       : await getPersonalModel(props.projectId)
     model.value = res.data.model
     versions.value = res.data.versions || []
+    if (versions.value.length > 1) {
+      versionTo.value = versions.value[versions.value.length - 1]
+      versionFrom.value = versions.value[versions.value.length - 2]
+    }
     await loadEvidenceMaterials()
     if (!isLiterary.value) await loadExistingCards()
   } catch (e) {
@@ -753,6 +807,35 @@ onMounted(async () => {
     loading.value = false
   }
 })
+
+function formatVersionValue(value) {
+  if (value === null || value === undefined) return t('common.noData')
+  if (typeof value === 'string') return value || t('common.noData')
+  try {
+    return JSON.stringify(value, null, 0)
+  } catch {
+    return String(value)
+  }
+}
+
+async function loadVersionComparison() {
+  if (!versionFrom.value || !versionTo.value || versionFrom.value === versionTo.value) return
+  versionCompareLoading.value = true
+  versionCompareError.value = ''
+  try {
+    const response = await comparePersonalModelVersions(
+      props.projectId,
+      versionFrom.value,
+      versionTo.value,
+    )
+    versionDiff.value = response.data
+  } catch (e) {
+    versionDiff.value = null
+    versionCompareError.value = e?.message || String(e)
+  } finally {
+    versionCompareLoading.value = false
+  }
+}
 </script>
 
 <style scoped>
@@ -1228,6 +1311,144 @@ onMounted(async () => {
   font-size: 12px;
   color: var(--c-ink-4);
   margin-top: 10px;
+}
+
+.version-card {
+  scroll-margin-top: 82px;
+}
+
+.version-compare-note {
+  margin-top: 6px;
+  color: var(--c-ink-3);
+  font-size: 12px;
+  line-height: 1.55;
+}
+
+.version-compare-controls {
+  display: flex;
+  align-items: flex-end;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-top: 14px;
+}
+
+.version-compare-controls label {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+
+.version-compare-controls label span {
+  color: var(--c-ink-4);
+  font-size: 11px;
+}
+
+.version-compare-controls select {
+  min-width: 92px;
+  border: 1px solid var(--c-line-strong);
+  border-radius: var(--r-sm);
+  background: var(--c-paper);
+  color: var(--c-ink-2);
+  padding: 7px 9px;
+  font: inherit;
+  font-size: 12px;
+}
+
+.version-arrow {
+  padding-bottom: 7px;
+  color: var(--c-ink-4);
+}
+
+.version-compare-btn {
+  border: 1px solid var(--c-ink);
+  background: var(--c-ink);
+  color: var(--c-paper);
+  padding: 7px 12px;
+  border-radius: var(--r-sm);
+  font: inherit;
+  font-size: 12px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.version-compare-btn:disabled {
+  cursor: not-allowed;
+  opacity: 0.45;
+}
+
+.version-compare-error,
+.version-diff-warning {
+  margin-top: 10px;
+  color: var(--a-aggressive);
+  font-size: 11px;
+}
+
+.version-diff {
+  margin-top: 16px;
+  border-top: 1px dashed var(--c-line-soft);
+  padding-top: 12px;
+}
+
+.version-diff-summary {
+  color: var(--c-ink-3);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.version-diff-empty {
+  margin-top: 9px;
+  color: var(--c-ink-4);
+  font-size: 12px;
+}
+
+.version-change-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.version-change {
+  padding: 9px 10px;
+  border-left: 3px solid var(--c-line-strong);
+  background: var(--c-bg-softer);
+}
+
+.version-change-head,
+.version-change-values {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.version-change-head code {
+  color: var(--c-ink-2);
+  font-size: 11px;
+  overflow-wrap: anywhere;
+}
+
+.version-change-kind {
+  color: var(--c-ink-4);
+  font-size: 10px;
+  font-weight: 700;
+}
+
+.version-change-kind.kind-added { color: var(--a-balanced); }
+.version-change-kind.kind-removed { color: var(--a-aggressive); }
+
+.version-change-values {
+  margin-top: 6px;
+  color: var(--c-ink-3);
+  font-size: 12px;
+  line-height: 1.55;
+  overflow-wrap: anywhere;
+}
+
+.version-change-values span:first-child,
+.version-change-values span:last-child {
+  min-width: 0;
+  flex: 1 1 180px;
 }
 
 .disclaimer {

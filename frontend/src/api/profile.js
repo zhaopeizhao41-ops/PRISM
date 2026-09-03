@@ -118,6 +118,14 @@ export function getPersonalModel(projectId) {
   })
 }
 
+export function comparePersonalModelVersions(projectId, fromVersion, toVersion) {
+  return service({
+    url: `/api/profile/model/compare/${projectId}`,
+    method: 'get',
+    params: { from: fromVersion, to: toVersion }
+  })
+}
+
 export function getLiteraryAnalysis(projectId) {
   return service({
     url: `/api/profile/literary-analysis/${projectId}`,

@@ -206,6 +206,20 @@
         "trigger": "触发点",
         "rationale": "理由",
         "influence": "影响"
+      },
+      "versionCompareTitle": "画像版本差异",
+      "versionCompareNote": "先查看补充资料带来的变化；历史版本不会被覆盖，差异也不会自动写回画像。",
+      "versionFrom": "从版本",
+      "versionTo": "到版本",
+      "versionComparing": "比较中…",
+      "compareVersions": "比较版本",
+      "versionChangeCount": "v{from} → v{to}：{n} 项变化",
+      "versionNoChanges": "这两个版本没有可见变化。",
+      "versionDiffTruncated": "变化较多，仅显示前 100 项。",
+      "versionChange": {
+        "added": "新增",
+        "removed": "移除",
+        "changed": "变化"
       }
     },
     "mat": {

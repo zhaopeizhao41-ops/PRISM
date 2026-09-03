@@ -848,6 +848,95 @@ def get_personal_model(project_id: str):
     })
 
 
+def _version_diff_value(value: object, *, max_chars: int = 800) -> object:
+    """Keep version comparisons readable and prevent large evidence blobs leaking into the diff."""
+    if isinstance(value, str):
+        return value if len(value) <= max_chars else value[:max_chars] + "…"
+    if isinstance(value, list):
+        return [_version_diff_value(item, max_chars=max_chars) for item in value[:20]]
+    if isinstance(value, dict):
+        return {
+            str(key): _version_diff_value(child, max_chars=max_chars)
+            for key, child in list(value.items())[:40]
+            if key not in {"evidence_refs", "quote"}
+        }
+    return value
+
+
+def _model_version_diff(before: dict, after: dict, *, max_changes: int = 100) -> list[dict]:
+    """Return deterministic leaf-level changes for user review."""
+    changes: list[dict] = []
+
+    def walk(left: object, right: object, path: list[str]) -> None:
+        if len(changes) >= max_changes:
+            return
+        if isinstance(left, dict) and isinstance(right, dict):
+            for key in sorted(set(left) | set(right), key=str):
+                walk(left.get(key), right.get(key), [*path, str(key)])
+            return
+        if isinstance(left, list) and isinstance(right, list):
+            if left != right:
+                changes.append({
+                    "path": ".".join(path),
+                    "kind": "changed",
+                    "before": _version_diff_value(left),
+                    "after": _version_diff_value(right),
+                })
+            return
+        if left != right:
+            kind = "added" if left is None else ("removed" if right is None else "changed")
+            changes.append({
+                "path": ".".join(path),
+                "kind": kind,
+                "before": _version_diff_value(left),
+                "after": _version_diff_value(right),
+            })
+
+    walk(before or {}, after or {}, [])
+    return changes
+
+
+@profile_bp.route('/model/compare/<project_id>', methods=['GET'])
+def compare_model_versions(project_id: str):
+    """Compare two persisted personal-model versions without mutating either one."""
+    project, error = _get_profile_project(project_id)
+    if error:
+        return error
+
+    versions = PersonalModelStore.list_versions(project_id)
+    if len(versions) < 2:
+        return jsonify({
+            "success": False,
+            "error": "至少需要两个画像版本才能比较",
+        }), 400
+    current_version = versions[-1]
+    to_version = request.args.get('to', default=current_version, type=int)
+    from_version = request.args.get(
+        'from',
+        default=versions[-2] if to_version == current_version else None,
+        type=int,
+    )
+    if from_version is None:
+        return jsonify({"success": False, "error": "from version is required"}), 400
+    if from_version not in versions or to_version not in versions:
+        return jsonify({"success": False, "error": "画像版本不存在"}), 404
+    before = PersonalModelStore.get_version(project_id, from_version)
+    after = PersonalModelStore.get_version(project_id, to_version)
+    if not before or not after:
+        return jsonify({"success": False, "error": "画像版本读取失败"}), 500
+    changes = _model_version_diff(before, after)
+    return jsonify({
+        "success": True,
+        "data": {
+            "project_id": project_id,
+            "from_version": from_version,
+            "to_version": to_version,
+            "changes": changes,
+            "truncated": len(changes) >= 100,
+        },
+    })
+
+
 @profile_bp.route('/projects', methods=['GET'])
 def list_profile_projects():
     """

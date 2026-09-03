@@ -206,6 +206,20 @@
         "trigger": "Trigger",
         "rationale": "Rationale",
         "influence": "Influence"
+      },
+      "versionCompareTitle": "Profile version changes",
+      "versionCompareNote": "Review what changed after adding material. History stays intact and differences never rewrite the profile automatically.",
+      "versionFrom": "From version",
+      "versionTo": "To version",
+      "versionComparing": "Comparing…",
+      "compareVersions": "Compare versions",
+      "versionChangeCount": "v{from} → v{to}: {n} changes",
+      "versionNoChanges": "No visible changes between these versions.",
+      "versionDiffTruncated": "There are many changes; showing the first 100.",
+      "versionChange": {
+        "added": "Added",
+        "removed": "Removed",
+        "changed": "Changed"
       }
     },
     "mat": {
