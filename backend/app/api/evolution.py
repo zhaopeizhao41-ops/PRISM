@@ -21,6 +21,7 @@ from ..models.branch import BranchStore
 from ..models.project import ProjectManager
 from ..services.evolution_engine import EvolutionEngine
 from ..utils.logger import get_logger
+from ..utils.privacy import has_cloud_processing_consent
 
 logger = get_logger('prism.api.evolution')
 
@@ -84,6 +85,12 @@ def create_session():
     project, error = _get_profile_project(project_id)
     if error:
         return error
+    if not has_cloud_processing_consent(project):
+        return jsonify({
+            "success": False,
+            "code": "cloud_processing_consent_required",
+            "error": t('api.cloudConsentRequired'),
+        }), 428
 
     model = PersonalModelStore.get_current(project_id)
     if not model:
@@ -176,6 +183,14 @@ def advance_session(session_id: str):
     data = request.get_json(silent=True) or {}
     injected_event = (data.get('injected_event') or '').strip() or None
     request_id = request.headers.get('Idempotency-Key') or data.get('request_id')
+
+    project = ProjectManager.get_project(session.get('project_id'))
+    if project and not has_cloud_processing_consent(project):
+        return jsonify({
+            "success": False,
+            "code": "cloud_processing_consent_required",
+            "error": t('api.cloudConsentRequired'),
+        }), 428
 
     try:
         engine = EvolutionEngine()

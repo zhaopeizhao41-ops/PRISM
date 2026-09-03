@@ -36,7 +36,8 @@
     "ontologyNotFound": "Ontology definition not found",
     "graphBuildStarted": "Graph build task started. Query progress via /task/{taskId}.",
     "taskNotFound": "Task not found: {id}",
-    "graphDeleted": "Graph deleted: {id}"
+    "graphDeleted": "Graph deleted: {id}",
+    "cloudConsentRequired": "Explicit consent is required before sending project materials to the LLM or Zep Cloud"
   },
   "progress": {
     "initGraphService": "Initializing graph build service...",
@@ -136,6 +137,10 @@
       "uploadSub": "Supports Word (.docx) / PDF (.pdf) / Excel (.xlsx, .csv) / PPT (.pptx) / Images (.png, .jpg) / Chat & Notes (.txt, .html, .json)",
       "existingMaterials": "Submitted materials",
       "emptyWarn": "Please fill the form or submit at least one material",
+      "privacyTitle": "Privacy & cloud processing",
+      "cloudConsent": "I agree to send this project's materials to the LLM and Zep Cloud for graph building and analysis",
+      "cloudConsentNote": "Personal and literary materials remain isolated. You can revoke consent in project privacy settings; revocation purges linked Cloud graphs.",
+      "cloudConsentRequired": "Check cloud-processing consent before starting generation",
       "submit": "Generate Profile",
       "regenerate": "Add materials & regenerate",
       "stepSubmit": "Submitting",

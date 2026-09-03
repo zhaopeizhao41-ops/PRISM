@@ -18,6 +18,7 @@ from ..models.branch import BranchStore
 from ..models.project import ProjectManager
 from ..services.branch_generator import BranchGenerator
 from ..utils.logger import get_logger
+from ..utils.privacy import has_cloud_processing_consent
 
 logger = get_logger('prism.api.branch')
 
@@ -59,6 +60,12 @@ def generate_branches():
     project, error = _get_profile_project(project_id)
     if error:
         return error
+    if not has_cloud_processing_consent(project):
+        return jsonify({
+            "success": False,
+            "code": "cloud_processing_consent_required",
+            "error": t('api.cloudConsentRequired'),
+        }), 428
 
     model = PersonalModelStore.get_current(project_id)
     if not model:

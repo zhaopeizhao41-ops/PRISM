@@ -13,7 +13,7 @@ from flask import Flask, request, send_from_directory
 from flask_cors import CORS
 
 from .config import Config
-from .utils.logger import setup_logger, get_logger
+from .utils.logger import setup_logger, get_logger, summarize_payload
 
 
 def create_app(config_class=Config):
@@ -40,7 +40,10 @@ def create_app(config_class=Config):
         logger.info("=" * 50)
 
     # 启用CORS
-    CORS(app, resources={r"/api/*": {"origins": "*"}})
+    CORS(
+        app,
+        resources={r"/api/*": {"origins": app.config.get('CORS_ORIGINS', [])}},
+    )
 
     # 请求日志中间件
     @app.before_request
@@ -48,7 +51,8 @@ def create_app(config_class=Config):
         logger = get_logger('prism.request')
         logger.debug(f"请求: {request.method} {request.path}")
         if request.content_type and 'json' in request.content_type:
-            logger.debug(f"请求体: {request.get_json(silent=True)}")
+            payload = request.get_json(silent=True)
+            logger.debug("请求体结构: %s", summarize_payload(payload))
     
     @app.after_request
     def log_response(response):
@@ -75,6 +79,11 @@ def create_app(config_class=Config):
     # may still be owned by another live worker.
     from .models.task import TaskManager
     TaskManager().recover_interrupted_tasks()
+
+    # Apply explicitly configured retention windows at startup. Failed Cloud
+    # cleanup keeps the local project so the next restart can retry safely.
+    from .utils.privacy import purge_expired_projects
+    purge_expired_projects(app, logger=logger)
     
     # 健康检查
     @app.route('/health')

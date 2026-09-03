@@ -22,6 +22,7 @@ from ..models.roundtable import RoundtableStore
 from ..models.project import ProjectManager
 from ..services.roundtable_engine import RoundtableEngine, MAX_PARTICIPANTS
 from ..utils.logger import get_logger
+from ..utils.privacy import has_cloud_processing_consent
 
 logger = get_logger('prism.api.roundtable')
 
@@ -71,7 +72,6 @@ def list_participants(project_id: str):
     project, error = _get_profile_project(project_id)
     if error:
         return error
-
     engine = RoundtableEngine()
     return jsonify({"success": True, "data": {
         "project_id": project_id,
@@ -103,6 +103,12 @@ def open_roundtable():
     project, error = _get_profile_project(project_id)
     if error:
         return error
+    if not has_cloud_processing_consent(project):
+        return jsonify({
+            "success": False,
+            "code": "cloud_processing_consent_required",
+            "error": t('api.cloudConsentRequired'),
+        }), 428
 
     model = PersonalModelStore.get_current(project_id)
     if not model:
@@ -336,6 +342,15 @@ def interject_speech(dialog_id: str):
         return jsonify({"success": False, "error": "speaker_ref 不是本圆桌参与者"}), 400
 
     project_id = dialog["project_id"]
+    project, error = _get_profile_project(project_id)
+    if error:
+        return error
+    if not has_cloud_processing_consent(project):
+        return jsonify({
+            "success": False,
+            "code": "cloud_processing_consent_required",
+            "error": t('api.cloudConsentRequired'),
+        }), 428
     model_data = PersonalModelStore.get_current(project_id)
     personal_model = model_data.get("model", {}) if model_data else {}
 

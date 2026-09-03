@@ -10,6 +10,41 @@ from datetime import datetime
 from logging.handlers import RotatingFileHandler
 
 
+_SENSITIVE_LOG_KEY_PARTS = (
+    'api_key', 'apikey', 'token', 'password', 'secret', 'authorization',
+    'raw_text', 'normalized_text', 'source_text', 'extracted_text',
+    'text', 'quote', 'evidence', 'transcript', 'prompt', 'message', 'content', 'body',
+)
+
+
+def _is_sensitive_log_key(key: str) -> bool:
+    normalized = str(key).lower().replace('-', '_')
+    return any(part in normalized for part in _SENSITIVE_LOG_KEY_PARTS)
+
+
+def summarize_payload(value, *, key: str = ''):
+    """Return a shape-only representation safe for request debug logs.
+
+    Values are never retained. This keeps DEBUG request traces useful for
+    diagnosing payload shape while preventing source material and credentials
+    from entering log files.
+    """
+    if key and _is_sensitive_log_key(key):
+        return '<redacted>'
+    if isinstance(value, dict):
+        return {
+            str(child_key): summarize_payload(child_value, key=str(child_key))
+            for child_key, child_value in value.items()
+        }
+    if isinstance(value, list):
+        return f'<list len={len(value)}>'
+    if isinstance(value, str):
+        return f'<str len={len(value)}>'
+    if value is None:
+        return None
+    return f'<{type(value).__name__}>'
+
+
 def _ensure_utf8_stdout():
     """
     确保 stdout/stderr 使用 UTF-8 编码

@@ -7,7 +7,7 @@ import os
 import re
 import traceback
 import threading
-from contextlib import ExitStack, nullcontext
+from contextlib import ExitStack
 from flask import request, jsonify
 from zep_cloud import NotFoundError
 
@@ -19,6 +19,7 @@ from ..utils.file_parser import FileParser
 from ..utils.logger import get_logger
 from ..utils.locale import t, get_locale, set_locale
 from ..utils.zep_lifecycle import get_graph_readers, graph_lifecycle_lock
+from ..utils.privacy import has_cloud_processing_consent
 from ..models.task import TaskManager, TaskStatus
 from ..models.project import ProjectManager, ProjectStatus
 from ..utils.llm_client import LLMResponseError
@@ -63,10 +64,56 @@ def _delete_cloud_graph_if_present(graph_id: str | None) -> None:
 
 def _clear_project_graph_reference(project) -> None:
     project.graph_id = None
+    project.literary_graph_id = None
     project.graph_build_task_id = None
     project.zep_batch_id = None
     project.zep_batch_operation_id = None
     project.error = None
+
+
+def _clear_single_graph_reference(project, graph_id: str) -> bool:
+    """Clear only the project reference that points at ``graph_id``."""
+    changed = False
+    if project.graph_id == graph_id:
+        project.graph_id = None
+        changed = True
+    if project.literary_graph_id == graph_id:
+        project.literary_graph_id = None
+        changed = True
+    if changed:
+        project.graph_build_task_id = None
+        project.zep_batch_id = None
+        project.zep_batch_operation_id = None
+        project.error = None
+    return changed
+
+
+def _project_cloud_graph_ids(project) -> list[str]:
+    """Return unique Cloud graph references owned by a project."""
+    return sorted({
+        graph_id
+        for graph_id in (getattr(project, 'graph_id', None), getattr(project, 'literary_graph_id', None))
+        if graph_id
+    })
+
+
+def _delete_project_cloud_graphs(project) -> None:
+    """Delete every Cloud graph associated with a project under lifecycle locks."""
+    graph_ids = _project_cloud_graph_ids(project)
+    with ExitStack() as stack:
+        for graph_id in graph_ids:
+            stack.enter_context(graph_lifecycle_lock(graph_id))
+        # Preflight every graph before mutating any of them. This prevents a
+        # busy literary graph from leaving the project half-deleted.
+        for graph_id in graph_ids:
+            active_consumers = _active_graph_consumers(graph_id)
+            if active_consumers:
+                raise GraphInUseError(
+                    f"Graph {graph_id} is in use by active consumer(s): "
+                    f"{', '.join(active_consumers)}"
+                )
+        for graph_id in graph_ids:
+            _delete_cloud_graph_if_present(graph_id)
 
 
 def _delete_project_evolution_graph(project) -> None:
@@ -164,19 +211,14 @@ def _delete_project_impl(project_id: str):
             "error": t('api.graphBuilding')
         }), 409
 
-    graph_id = project.graph_id
-    graph_guard = (
-        graph_lifecycle_lock(graph_id) if graph_id else nullcontext()
-    )
-    with graph_guard:
-        try:
-            _delete_cloud_graph_if_present(graph_id)
-        except GraphInUseError as error:
-            return jsonify({"success": False, "error": str(error)}), 409
-        _delete_project_evolution_graph(project)
-        # The local reference remains protected until it is removed, so a new
-        # simulation cannot claim the just-deleted graph in between.
-        success = ProjectManager.delete_project(project_id)
+    try:
+        _delete_project_cloud_graphs(project)
+    except GraphInUseError as error:
+        return jsonify({"success": False, "error": str(error)}), 409
+    _delete_project_evolution_graph(project)
+    # The local reference remains protected until it is removed, so a new
+    # simulation cannot claim the just-deleted graph in between.
+    success = ProjectManager.delete_project(project_id)
     
     if not success:
         return jsonify({
@@ -214,25 +256,20 @@ def _reset_project_impl(project_id: str):
             "error": t('api.graphBuilding')
         }), 409
 
-    graph_id = project.graph_id
-    graph_guard = (
-        graph_lifecycle_lock(graph_id) if graph_id else nullcontext()
-    )
-    with graph_guard:
-        try:
-            _delete_cloud_graph_if_present(graph_id)
-        except GraphInUseError as error:
-            return jsonify({"success": False, "error": str(error)}), 409
-        _delete_project_evolution_graph(project)
+    try:
+        _delete_project_cloud_graphs(project)
+    except GraphInUseError as error:
+        return jsonify({"success": False, "error": str(error)}), 409
+    _delete_project_evolution_graph(project)
 
-        # 重置到本体已生成状态
-        if project.ontology:
-            project.status = ProjectStatus.ONTOLOGY_GENERATED
-        else:
-            project.status = ProjectStatus.CREATED
+    # 重置到本体已生成状态
+    if project.ontology:
+        project.status = ProjectStatus.ONTOLOGY_GENERATED
+    else:
+        project.status = ProjectStatus.CREATED
 
-        _clear_project_graph_reference(project)
-        ProjectManager.save_project(project)
+    _clear_project_graph_reference(project)
+    ProjectManager.save_project(project)
     
     return jsonify({
         "success": True,
@@ -309,6 +346,12 @@ def _build_graph_impl():
                 "success": False,
                 "error": t('api.projectNotFound', id=project_id)
             }), 404
+        if not has_cloud_processing_consent(project):
+            return jsonify({
+                "success": False,
+                "code": "cloud_processing_consent_required",
+                "error": t('api.cloudConsentRequired'),
+            }), 428
 
         # 检查项目状态
         force = data.get('force', False)  # 强制重新构建
@@ -420,18 +463,11 @@ def _build_graph_impl():
         if project.status == ProjectStatus.FAILED or (
             force and project.status == ProjectStatus.GRAPH_COMPLETED
         ):
-            graph_id_to_delete = project.graph_id
-            graph_guard = (
-                graph_lifecycle_lock(graph_id_to_delete)
-                if graph_id_to_delete
-                else nullcontext()
-            )
-            with graph_guard:
-                _delete_cloud_graph_if_present(graph_id_to_delete)
-                _delete_project_evolution_graph(project)
-                project.status = ProjectStatus.ONTOLOGY_GENERATED
-                _clear_project_graph_reference(project)
-                ProjectManager.save_project(project)
+            _delete_project_cloud_graphs(project)
+            _delete_project_evolution_graph(project)
+            project.status = ProjectStatus.ONTOLOGY_GENERATED
+            _clear_project_graph_reference(project)
+            ProjectManager.save_project(project)
         
         # 创建异步任务
         task_manager = TaskManager()
@@ -693,6 +729,13 @@ def get_graph_data(graph_id: str):
     获取图谱数据（节点和边）
     """
     try:
+        owners = ProjectManager.find_projects_by_any_graph_id(graph_id)
+        if any(not has_cloud_processing_consent(project) for project in owners):
+            return jsonify({
+                "success": False,
+                "code": "cloud_processing_consent_required",
+                "error": t('api.cloudConsentRequired'),
+            }), 428
         if not Config.ZEP_API_KEY:
             return jsonify({
                 "success": False,
@@ -727,7 +770,7 @@ def delete_graph(graph_id: str):
                 "error": t('api.zepApiKeyMissing')
             }), 500
         
-        projects = ProjectManager.find_projects_by_graph_id(graph_id)
+        projects = ProjectManager.find_projects_by_any_graph_id(graph_id)
         if not projects:
             return jsonify({
                 "success": False,
@@ -741,7 +784,7 @@ def delete_graph(graph_id: str):
 
             # Re-read under all owning project locks so a concurrent build
             # claim cannot appear between validation and Cloud deletion.
-            projects = ProjectManager.find_projects_by_graph_id(graph_id)
+            projects = ProjectManager.find_projects_by_any_graph_id(graph_id)
             if any(_project_has_active_build(project) for project in projects):
                 return jsonify({
                     "success": False,
@@ -752,12 +795,13 @@ def delete_graph(graph_id: str):
 
             for project in projects:
                 _delete_project_evolution_graph(project)
-                _clear_project_graph_reference(project)
-                project.status = (
-                    ProjectStatus.ONTOLOGY_GENERATED
-                    if project.ontology
-                    else ProjectStatus.CREATED
-                )
+                _clear_single_graph_reference(project, graph_id)
+                if not project.graph_id:
+                    project.status = (
+                        ProjectStatus.ONTOLOGY_GENERATED
+                        if project.ontology
+                        else ProjectStatus.CREATED
+                    )
                 ProjectManager.save_project(project)
         
         return jsonify({

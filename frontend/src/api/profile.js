@@ -169,3 +169,18 @@ export function exportProject(projectId, includeRaw = false) {
     responseType: 'blob'
   })
 }
+
+export function getProjectPrivacy(projectId) {
+  return service({
+    url: `/api/profile/privacy/${projectId}`,
+    method: 'get'
+  })
+}
+
+export function updateProjectPrivacy(projectId, data) {
+  return service({
+    url: `/api/profile/privacy/${projectId}`,
+    method: 'patch',
+    data
+  })
+}

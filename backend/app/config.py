@@ -18,8 +18,19 @@ class Config:
     """Flask配置类"""
     
     # Flask配置
-    SECRET_KEY = os.environ.get('SECRET_KEY', 'prism-secret-key')
+    # Never fall back to a shared production secret. ``run.py`` validates this
+    # value before serving requests.
+    SECRET_KEY = os.environ.get('SECRET_KEY')
     DEBUG = os.environ.get('FLASK_DEBUG', 'False').lower() == 'true'
+
+    _cors_origins_raw = os.environ.get(
+        'CORS_ORIGINS',
+        'http://localhost:5173,http://127.0.0.1:5173,'
+        'http://localhost:5001,http://127.0.0.1:5001',
+    )
+    CORS_ORIGINS = [
+        origin.strip() for origin in _cors_origins_raw.split(',') if origin.strip()
+    ]
     
     # JSON配置 - 禁用ASCII转义，让中文直接显示
     JSON_AS_ASCII = False
@@ -72,6 +83,8 @@ class Config:
             errors.append("LLM_API_KEY 未配置")
         if not cls.ZEP_API_KEY:
             errors.append("ZEP_API_KEY 未配置")
+        if not cls.SECRET_KEY:
+            errors.append("SECRET_KEY 未配置；拒绝使用默认密钥启动")
         if os.environ.get("ZEP_API_URL"):
             errors.append("ZEP_API_URL 不受支持；PRISM 仅连接 Zep Cloud")
         if cls.DEBUG:

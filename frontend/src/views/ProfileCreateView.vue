@@ -324,9 +324,23 @@
         </div>
       </section>
 
+      <!-- 隐私与云端处理同意 -->
+      <section class="form-card privacy-card">
+        <div class="card-header">
+          <span class="card-num">07</span>
+          <span class="card-title">{{ t('profile.create.privacyTitle') }}</span>
+        </div>
+        <label class="checkbox-row privacy-consent-row">
+          <input v-model="cloudConsent" type="checkbox" />
+          <span>{{ t('profile.create.cloudConsent') }}</span>
+        </label>
+        <p class="privacy-note">{{ t('profile.create.cloudConsentNote') }}</p>
+      </section>
+
       <!-- 提交栏 -->
       <div class="submit-bar">
-        <p v-if="!canSubmit" class="submit-warn">{{ t('profile.create.emptyWarn') }}</p>
+        <p v-if="!hasAnyInput" class="submit-warn">{{ t('profile.create.emptyWarn') }}</p>
+        <p v-else-if="!cloudConsent" class="submit-warn">{{ t('profile.create.cloudConsentRequired') }}</p>
         <button class="submit-btn" :disabled="!canSubmit" @click="handleGenerate">
           {{ appendMode ? t('profile.create.regenerate') : t('profile.create.submit') }}
         </button>
@@ -375,7 +389,9 @@ import {
   buildProfileGraph,
   getBuildStatus,
   generatePersonalModel,
-  getGenerateStatus
+  getGenerateStatus,
+  getProjectPrivacy,
+  updateProjectPrivacy
 } from '../api/profile'
 
 const router = useRouter()
@@ -438,6 +454,7 @@ const selectedFiles = ref([])
 const isDragOver = ref(false)
 const fileInput = ref(null)
 const existingMaterials = ref([])
+const cloudConsent = ref(false)
 
 const form = reactive({
   nickname: '',
@@ -506,7 +523,8 @@ function buildFormPayload() {
 
 const hasFormInput = computed(() => Object.keys(buildFormPayload()).length > 0)
 const hasMaterialInput = computed(() => !!(pastedText.value.trim() || selectedFiles.value.length))
-const canSubmit = computed(() => hasFormInput.value || hasMaterialInput.value)
+const hasAnyInput = computed(() => hasFormInput.value || hasMaterialInput.value)
+const canSubmit = computed(() => hasAnyInput.value && cloudConsent.value)
 
 function toggleTag(tag) {
   const idx = form.self_tags.indexOf(tag)
@@ -591,6 +609,7 @@ function saveDraft() {
         timeRange: timeRange.value,
         customTags: [...customTags.value],
         big5Enabled: big5Enabled.value,
+        cloudConsent: cloudConsent.value,
         savedAt: Date.now()
       }
       localStorage.setItem(DRAFT_STORAGE_KEY, JSON.stringify(data))
@@ -627,6 +646,7 @@ function loadDraft() {
       hasContent = true
     }
     if (data.big5Enabled !== undefined) big5Enabled.value = data.big5Enabled
+    if (data.cloudConsent !== undefined) cloudConsent.value = data.cloudConsent === true
     if (hasContent) {
       draftRestored.value = true
     }
@@ -663,6 +683,7 @@ function resetForm() {
   pastedText.value = ''
   customTags.value = []
   big5Enabled.value = false
+  cloudConsent.value = false
 }
 
 watch(
@@ -721,8 +742,15 @@ async function handleGenerate() {
     if (!projectId.value) {
       phase.value = 'submitting'
       phaseMessage.value = t('profile.create.phCreating')
-      const res = await createProfileProject({ name: form.nickname || 'Personal Profile' })
+      const res = await createProfileProject({
+        name: form.nickname || 'Personal Profile',
+        cloud_processing_consent: cloudConsent.value,
+      })
       projectId.value = res.data.project_id
+    } else if (!cloudConsent.value) {
+      throw new Error(t('profile.create.cloudConsentRequired'))
+    } else {
+      await updateProjectPrivacy(projectId.value, { cloud_processing_consent: true })
     }
 
     // 2. 提交量化表单
@@ -796,8 +824,11 @@ onMounted(async () => {
     try {
       const res = await listMaterials(projectId.value)
       existingMaterials.value = res.data.materials || []
+      const privacy = await getProjectPrivacy(projectId.value)
+      cloudConsent.value = privacy.data?.cloud_processing_consent === true
     } catch (e) {
       console.error('Failed to load materials:', e)
+      cloudConsent.value = false
     }
   } else {
     loadDraft()
@@ -1025,6 +1056,27 @@ onMounted(async () => {
   font-size: 13px;
   color: var(--c-ink-3);
   cursor: pointer;
+}
+
+.privacy-card {
+  border-color: var(--c-brand-line);
+  background: var(--c-brand-tint, #fff8f5);
+}
+
+.privacy-consent-row {
+  color: var(--c-ink);
+  font-weight: 700;
+}
+
+.privacy-consent-row input {
+  accent-color: var(--c-brand);
+}
+
+.privacy-note {
+  margin: 8px 0 0 26px;
+  color: var(--c-ink-3);
+  font-size: 12px;
+  line-height: 1.7;
 }
 
 /* 大五滑块 */

@@ -36,7 +36,8 @@
     "ontologyNotFound": "未找到本体定义",
     "graphBuildStarted": "图谱构建任务已启动，请通过 /task/{taskId} 查询进度",
     "taskNotFound": "任务不存在: {id}",
-    "graphDeleted": "图谱已删除: {id}"
+    "graphDeleted": "图谱已删除: {id}",
+    "cloudConsentRequired": "请先明确同意将项目资料发送到 LLM 与 Zep Cloud"
   },
   "progress": {
     "initGraphService": "初始化图谱构建服务...",
@@ -136,6 +137,10 @@
       "uploadSub": "支持 Word (.docx) / PDF (.pdf) / 表格 (.xlsx, .csv) / PPT (.pptx) / 截图照片 (.png, .jpg) / 聊天与随笔 (.txt, .html, .json)",
       "existingMaterials": "已提交资料",
       "emptyWarn": "请先填写表单或提交至少一份资料",
+      "privacyTitle": "隐私与云端处理",
+      "cloudConsent": "我同意将本项目资料发送给 LLM 与 Zep Cloud，用于构建图谱和生成分析",
+      "cloudConsentNote": "资料会按个人与文学模式隔离处理。你可以在项目隐私设置中撤回同意，撤回时会清理已关联的云端图谱。",
+      "cloudConsentRequired": "请先勾选云端处理同意，再开始生成",
       "submit": "生成画像",
       "regenerate": "补充资料并重新生成",
       "stepSubmit": "提交资料",

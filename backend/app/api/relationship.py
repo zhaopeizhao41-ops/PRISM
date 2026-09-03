@@ -22,6 +22,7 @@ from ..models.relationship_agent import RelationshipAgentStore
 from ..models.project import ProjectManager
 from ..services.relationship_agent_generator import RelationshipAgentGenerator
 from ..utils.logger import get_logger
+from ..utils.privacy import has_cloud_processing_consent
 
 logger = get_logger('prism.api.relationship')
 
@@ -70,6 +71,12 @@ def list_candidates(project_id: str):
     if error:
         return error
     project, model = loaded
+    if not has_cloud_processing_consent(project):
+        return jsonify({
+            "success": False,
+            "code": "cloud_processing_consent_required",
+            "error": "请先明确同意将项目资料发送到 LLM 与 Zep Cloud",
+        }), 428
 
     try:
         generator = RelationshipAgentGenerator()
@@ -113,7 +120,13 @@ def generate_cards():
     loaded, error = _load_graph_and_model(project_id)
     if error:
         return error
-    _, model = loaded
+    project, model = loaded
+    if not has_cloud_processing_consent(project):
+        return jsonify({
+            "success": False,
+            "code": "cloud_processing_consent_required",
+            "error": "请先明确同意将项目资料发送到 LLM 与 Zep Cloud",
+        }), 428
 
     task_manager = TaskManager()
     task_id = task_manager.create_task(

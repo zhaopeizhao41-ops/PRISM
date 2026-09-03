@@ -42,6 +42,7 @@ from ..models.task import TaskManager, TaskStatus
 from ..models.project import ProjectManager, ProjectStatus
 from ..models.personal_model import PersonalModelStore
 from ..services.profile_synthesizer import ProfileSynthesizer
+from ..utils.privacy import has_cloud_processing_consent, privacy_public_view
 
 logger = get_logger('prism.profile')
 
@@ -280,9 +281,17 @@ def create_profile_project():
     """
     data = request.get_json(silent=True) or {}
     name = (data.get('name') or 'Personal Profile').strip() or 'Personal Profile'
+    cloud_consent = data.get('cloud_processing_consent', False)
+    if not isinstance(cloud_consent, bool):
+        return jsonify({"success": False, "error": "cloud_processing_consent must be a JSON boolean"}), 400
 
     project = ProjectManager.create_project(name=name)
     project.project_type = "personal_profile"
+    project.privacy_settings.update({
+        "cloud_processing_consent": cloud_consent,
+        "consent_source": "profile_create" if cloud_consent else "not_granted",
+        "consent_updated_at": datetime.now(timezone.utc).isoformat() if cloud_consent else None,
+    })
     # 画像项目直接注入固定本体，状态推进到"本体已生成"，跳过 LLM 本体生成
     ontology = get_person_ontology()
     project.ontology = {
@@ -553,6 +562,8 @@ def build_profile_graph():
             })
 
     force = bool(data.get('force', False))
+    if not has_cloud_processing_consent(project):
+        return _cloud_consent_error()
     if project.status == ProjectStatus.GRAPH_COMPLETED and not force:
         return jsonify({
             "success": True,
@@ -568,16 +579,14 @@ def build_profile_graph():
 
     if project.status == ProjectStatus.FAILED or force:
         # 失败重试 / 强制重建：删除云端旧图后回到本体就绪状态
-        if project.graph_id:
-            try:
-                GraphBuilderService(api_key=Config.ZEP_API_KEY).delete_graph(project.graph_id)
-            except Exception:
-                logger.exception(f"删除旧图谱失败: {project.graph_id}")
-        if project.literary_graph_id:
-            try:
-                GraphBuilderService(api_key=Config.ZEP_API_KEY).delete_graph(project.literary_graph_id)
-            except Exception:
-                logger.exception(f"删除旧文学图谱失败: {project.literary_graph_id}")
+        from .graph import GraphInUseError, _delete_project_cloud_graphs
+        try:
+            _delete_project_cloud_graphs(project)
+        except GraphInUseError as exc:
+            return jsonify({"success": False, "error": str(exc)}), 409
+        except Exception as exc:
+            logger.exception("删除旧项目图谱失败: project=%s", project_id)
+            return jsonify({"success": False, "error": f"删除旧图谱失败: {exc}"}), 502
         from ..services.evolution_graph_writer import delete_evolution_graph
         try:
             delete_evolution_graph(project)
@@ -801,6 +810,8 @@ def generate_personal_model():
             "success": False,
             "error": "对应 scope 图谱尚未构建，请先调用 /api/profile/build"
         }), 400
+    if not has_cloud_processing_consent(project):
+        return _cloud_consent_error()
 
     task_manager = TaskManager()
     task_id = task_manager.create_task(
@@ -959,6 +970,14 @@ def get_personal_model(project_id: str):
     })
 
 
+def _cloud_consent_error():
+    return jsonify({
+        "success": False,
+        "code": "cloud_processing_consent_required",
+        "error": t('api.cloudConsentRequired'),
+    }), 428
+
+
 def _version_diff_value(value: object, *, max_chars: int = 800) -> object:
     """Keep version comparisons readable and prevent large evidence blobs leaking into the diff."""
     if isinstance(value, str):
@@ -1093,6 +1112,76 @@ def list_profile_projects():
             "resume_total": (resume_session or {}).get("stage_count"),
         })
     return jsonify({"success": True, "data": result})
+
+
+@profile_bp.route('/privacy/<project_id>', methods=['GET', 'PATCH'])
+def profile_privacy(project_id: str):
+    """Read or update consent and retention settings for a profile project."""
+    project, error = _get_profile_project(project_id)
+    if error:
+        return error
+    if request.method == 'GET':
+        return jsonify({"success": True, "data": privacy_public_view(project)})
+
+    data = request.get_json(silent=True) or {}
+    if not isinstance(data, dict):
+        return jsonify({"success": False, "error": "JSON object is required"}), 400
+    supported = {'cloud_processing_consent', 'retention_days'}
+    if not supported.intersection(data):
+        return jsonify({"success": False, "error": "没有可更新的隐私设置"}), 400
+
+    from .graph import (
+        GraphInUseError,
+        _clear_project_graph_reference,
+        _delete_project_cloud_graphs,
+        _delete_project_evolution_graph,
+        _project_build_lock,
+        _project_has_active_build,
+    )
+    with _project_build_lock(project_id):
+        settings = dict(project.privacy_settings or {})
+        if 'retention_days' in data:
+            retention = data.get('retention_days')
+            if retention is not None:
+                try:
+                    retention = int(retention)
+                except (TypeError, ValueError):
+                    return jsonify({"success": False, "error": "retention_days 必须为 1-3650 或 null"}), 400
+                if not 1 <= retention <= 3650:
+                    return jsonify({"success": False, "error": "retention_days 必须为 1-3650 或 null"}), 400
+            settings['retention_days'] = retention
+
+        if 'cloud_processing_consent' in data:
+            consent = data.get('cloud_processing_consent')
+            if not isinstance(consent, bool):
+                return jsonify({"success": False, "error": "cloud_processing_consent must be a JSON boolean"}), 400
+            was_granted = settings.get('cloud_processing_consent') is True
+            if not consent and was_granted:
+                if _project_has_active_build(project):
+                    return jsonify({"success": False, "error": "图谱构建进行中，暂不能撤回云端处理同意"}), 409
+                try:
+                    _delete_project_cloud_graphs(project)
+                    _delete_project_evolution_graph(project)
+                except GraphInUseError as exc:
+                    return jsonify({"success": False, "error": str(exc)}), 409
+                except Exception as exc:
+                    logger.exception("撤回云端处理同意时清理图谱失败: project=%s", project_id)
+                    return jsonify({"success": False, "error": f"云端数据清理失败，请稍后重试: {exc}"}), 502
+                _clear_project_graph_reference(project)
+                project.status = (
+                    ProjectStatus.ONTOLOGY_GENERATED
+                    if project.ontology else ProjectStatus.CREATED
+                )
+                settings['last_cloud_purge_at'] = datetime.now(timezone.utc).isoformat()
+            settings.update({
+                'cloud_processing_consent': consent,
+                'consent_source': 'user_settings' if consent else 'revoked_by_user',
+                'consent_updated_at': datetime.now(timezone.utc).isoformat(),
+            })
+
+        project.privacy_settings = settings
+        ProjectManager.save_project(project)
+    return jsonify({"success": True, "data": privacy_public_view(project)})
 
 
 @profile_bp.route('/export/<project_id>', methods=['GET'])

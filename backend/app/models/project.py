@@ -58,6 +58,16 @@ class Project:
 
     # 项目类型：默认（舆情模拟）/ personal_profile（个人画像）
     project_type: Optional[str] = None
+
+    # 隐私与数据生命周期设置。新项目默认不允许发送到云端。
+    privacy_settings: Dict[str, Any] = field(default_factory=lambda: {
+        "schema_version": 1,
+        "cloud_processing_consent": False,
+        "consent_source": "not_granted",
+        "consent_updated_at": None,
+        "retention_days": None,
+        "last_cloud_purge_at": None,
+    })
     
     # 错误信息
     error: Optional[str] = None
@@ -85,6 +95,7 @@ class Project:
             "chunk_size": self.chunk_size,
             "chunk_overlap": self.chunk_overlap,
             "project_type": self.project_type,
+            "privacy_settings": self.privacy_settings,
             "error": self.error
         }
     
@@ -95,6 +106,31 @@ class Project:
         if isinstance(status, str):
             status = ProjectStatus(status)
         
+        privacy_settings = data.get('privacy_settings')
+        if not isinstance(privacy_settings, dict):
+            # Projects created before privacy controls existed may already
+            # reference a Cloud graph; preserve their existing workflow while
+            # making the migration explicit in the persisted settings.
+            has_existing_cloud_data = any(
+                data.get(key) for key in ('graph_id', 'literary_graph_id', 'evolution_graph_id')
+            )
+            privacy_settings = {
+                "schema_version": 1,
+                "cloud_processing_consent": has_existing_cloud_data,
+                "consent_source": "legacy_existing_cloud_data" if has_existing_cloud_data else "not_granted",
+                "consent_updated_at": None,
+                "retention_days": None,
+                "last_cloud_purge_at": None,
+            }
+        else:
+            privacy_settings = dict(privacy_settings)
+            privacy_settings.setdefault("schema_version", 1)
+            privacy_settings.setdefault("cloud_processing_consent", False)
+            privacy_settings.setdefault("consent_source", "not_granted")
+            privacy_settings.setdefault("consent_updated_at", None)
+            privacy_settings.setdefault("retention_days", None)
+            privacy_settings.setdefault("last_cloud_purge_at", None)
+
         return cls(
             project_id=data['project_id'],
             name=data.get('name', 'Unnamed Project'),
@@ -116,6 +152,7 @@ class Project:
             chunk_size=data.get('chunk_size', 500),
             chunk_overlap=data.get('chunk_overlap', 50),
             project_type=data.get('project_type'),
+            privacy_settings=privacy_settings,
             error=data.get('error')
         )
 
@@ -248,6 +285,15 @@ class ProjectManager:
             project
             for project in cls.list_projects(limit=None)
             if project.graph_id == graph_id
+        ]
+
+    @classmethod
+    def find_projects_by_any_graph_id(cls, graph_id: str) -> List[Project]:
+        """Return projects referencing either their personal or literary graph."""
+        return [
+            project
+            for project in cls.list_projects(limit=None)
+            if graph_id in {project.graph_id, project.literary_graph_id}
         ]
     
     @classmethod
