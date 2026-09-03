@@ -60,6 +60,7 @@ def create_app(config_class=Config):
     from .api import (
         graph_bp, profile_bp, branch_bp,
         evolution_bp, relationship_bp, roundtable_bp,
+        action_bp,
     )
     app.register_blueprint(graph_bp, url_prefix='/api/graph')
     app.register_blueprint(profile_bp, url_prefix='/api/profile')
@@ -67,6 +68,7 @@ def create_app(config_class=Config):
     app.register_blueprint(evolution_bp, url_prefix='/api/evolution')
     app.register_blueprint(relationship_bp, url_prefix='/api/relationship')
     app.register_blueprint(roundtable_bp, url_prefix='/api/roundtable')
+    app.register_blueprint(action_bp, url_prefix='/api/action')
 
     # Daemon workers do not survive a process restart. Reconcile only tasks
     # that have already missed a short heartbeat window, preserving tasks that

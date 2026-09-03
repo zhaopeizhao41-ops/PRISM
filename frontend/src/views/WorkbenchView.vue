@@ -357,6 +357,14 @@
               </button>
             </div>
           </section>
+
+          <!-- P2：将推演结论转成现实行动实验，并保留复盘轨迹 -->
+          <ActionExperiments
+            v-if="model"
+            :project-id="projectId"
+            :sessions="sessions"
+            @count-change="actionExperimentCount = $event"
+          />
         </template>
       </template>
 
@@ -387,6 +395,7 @@ import { useRouter, useRoute } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import AppHeader from '../components/AppHeader.vue'
 import GraphPanel from '../components/GraphPanel.vue'
+import ActionExperiments from '../components/ActionExperiments.vue'
 import { getProject, getGraphData, listProjectTasks, cancelTask } from '../api/graph'
 import { getPersonalModel, getProfileProjects } from '../api/profile'
 import { getBranches } from '../api/branch'
@@ -419,6 +428,7 @@ const loading = ref(true)
 const model = ref(null)
 const branchCount = ref(0)
 const roundtableCount = ref(0)
+const actionExperimentCount = ref(0)
 const branches = ref([])
 const roundtables = ref([])
 const sessions = ref([])
@@ -566,6 +576,16 @@ const nextAction = computed(() => {
     }
   }
 
+  if (roundtableCount.value && !actionExperimentCount.value) {
+    return {
+      tone: 'review',
+      title: t('workbench.nextAction.actionTitle'),
+      description: t('workbench.nextAction.actionDescription'),
+      cta: t('workbench.nextAction.actionCta'),
+      path: '#action-experiments',
+    }
+  }
+
   return {
     tone: 'review',
     title: t('workbench.nextAction.roundtableTitle'),
@@ -576,7 +596,12 @@ const nextAction = computed(() => {
 })
 
 function goToNextAction() {
-  if (nextAction.value?.path) router.push(nextAction.value.path)
+  if (!nextAction.value?.path) return
+  if (nextAction.value.path.startsWith('#')) {
+    document.querySelector(nextAction.value.path)?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+    return
+  }
+  router.push(nextAction.value.path)
 }
 
 const basicLine = computed(() => {
