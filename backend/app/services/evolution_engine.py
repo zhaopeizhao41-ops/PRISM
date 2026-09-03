@@ -198,7 +198,22 @@ class EvolutionEngine:
     """分支阶段推进引擎：一个会话一个状态机"""
 
     def __init__(self, api_key: Optional[str] = None):
-        self.llm = LLMClient(api_key=api_key) if api_key else LLMClient()
+        # 延迟创建 LLM 客户端：纯本地操作（例如裁决真实性断路器分叉）
+        # 不应因为测试/离线环境没有 API Key 而无法执行。
+        self._api_key = api_key
+        self._llm: Optional[LLMClient] = None
+
+    @property
+    def llm(self) -> LLMClient:
+        """首次真正需要生成内容时才校验并创建 LLM 客户端。"""
+        if self._llm is None:
+            self._llm = LLMClient(api_key=self._api_key)
+        return self._llm
+
+    @llm.setter
+    def llm(self, value: LLMClient) -> None:
+        # 保留测试和集成方注入 fake client 的能力。
+        self._llm = value
 
     # ---------- 画像裁剪（推演所需的稳定人格锚） ----------
 
