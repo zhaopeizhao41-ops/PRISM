@@ -14,6 +14,7 @@
 """
 
 import json
+import inspect
 import re
 import time
 import uuid
@@ -33,6 +34,7 @@ logger = get_logger('prism.roundtable.engine')
 
 # 圆桌人数上限（宇宙 + 关系人）
 MAX_PARTICIPANTS = 8
+ROUNDTABLE_DEADLINE_SECONDS = 30 * 60
 
 
 def _is_transient_api_error(error: Exception) -> bool:
@@ -51,7 +53,14 @@ def _is_transient_api_error(error: Exception) -> bool:
     )
 
 
-def _chat_with_retry(llm: LLMClient, *, messages, max_tokens: int, expect_json: bool = False):
+def _chat_with_retry(
+    llm: LLMClient,
+    *,
+    messages,
+    max_tokens: int,
+    expect_json: bool = False,
+    deadline: Optional[float] = None,
+):
     """文本或 JSON 调用 + 瞬时错误退避重试（最多 4 次）
 
     除网络/限流类瞬时错误外，空文本响应与不可用 JSON（LLMResponseError）
@@ -59,6 +68,8 @@ def _chat_with_retry(llm: LLMClient, *, messages, max_tokens: int, expect_json: 
     """
     delays = [5, 10, 20, 30]
     for attempt in range(len(delays) + 1):
+        if deadline is not None and time.monotonic() >= deadline:
+            raise TimeoutError("圆桌任务超过最大运行时限")
         try:
             if expect_json:
                 return llm.chat_json(
@@ -79,8 +90,40 @@ def _chat_with_retry(llm: LLMClient, *, messages, max_tokens: int, expect_json: 
         ):
             raise error
         logger.warning(f"瞬时响应异常（第 {attempt + 1} 次），{delays[attempt]} 秒后重试: {error}")
-        time.sleep(delays[attempt])
+        delay = delays[attempt]
+        if deadline is not None:
+            delay = min(delay, max(0, deadline - time.monotonic()))
+        time.sleep(delay)
     raise RuntimeError("unreachable")
+
+
+def _chat_with_roundtable_deadline(llm: LLMClient, *, messages, max_tokens: int,
+                                  expect_json: bool = False,
+                                  deadline: Optional[float] = None):
+    """Call the retry helper while remaining compatible with older integrations.
+
+    Tests and downstream extensions may replace ``_chat_with_retry`` with a
+    callable that predates the deadline keyword.  Inspecting its signature
+    avoids swallowing real ``TypeError`` exceptions raised by the callable.
+    """
+    kwargs = {
+        "messages": messages,
+        "max_tokens": max_tokens,
+        "expect_json": expect_json,
+    }
+    try:
+        signature = inspect.signature(_chat_with_retry)
+        accepts_kwargs = any(
+            parameter.kind == inspect.Parameter.VAR_KEYWORD
+            for parameter in signature.parameters.values()
+        )
+        if "deadline" in signature.parameters or accepts_kwargs:
+            kwargs["deadline"] = deadline
+    except (TypeError, ValueError):
+        # Built-in or opaque callables cannot be inspected; use the current
+        # production signature and let a genuine invocation error propagate.
+        kwargs["deadline"] = deadline
+    return _chat_with_retry(llm, **kwargs)
 
 
 def _clean_speech(text: str) -> str:
@@ -292,6 +335,47 @@ def _parse_agent_speech_output(raw_output: Any, current_core_memory: Dict[str, s
     return speech_text, updated_memory, applied_edits
 
 
+def _validate_moderation_payload(payload: Any) -> Dict[str, Any]:
+    """Normalize the moderator contract and reject structurally unsafe output."""
+    if not isinstance(payload, dict):
+        raise ValueError("主持人返回格式无效")
+    result = dict(payload)
+    consensus = result.get("epistemic_consensus")
+    if consensus is None:
+        consensus = {}
+    if not isinstance(consensus, dict):
+        raise ValueError("主持人共识结构无效")
+    consensus = dict(consensus)
+    for key in ("convergence_index", "inevitability_score", "leverage_ratio"):
+        value = consensus.get(key)
+        if value is None:
+            continue
+        if isinstance(value, bool) or not isinstance(value, (int, float)) or not 0 <= value <= 100:
+            raise ValueError(f"主持人字段 {key} 必须为 0-100")
+        consensus[key] = int(value)
+    result["epistemic_consensus"] = consensus
+
+    for key, max_items in (("audit", 64), ("convergences", 32), ("divergences", 32), ("open_questions", 16)):
+        value = result.get(key, [])
+        if value is None:
+            value = []
+        if not isinstance(value, list):
+            raise ValueError(f"主持人字段 {key} 必须为数组")
+        result[key] = [item for item in value[:max_items] if isinstance(item, dict) or key == "open_questions"]
+        if key == "open_questions":
+            result[key] = [str(item)[:500] for item in result[key] if str(item).strip()]
+
+    for key in ("summary", "reframe"):
+        value = result.get(key, "")
+        if value is None:
+            result[key] = ""
+        elif not isinstance(value, str):
+            raise ValueError(f"主持人字段 {key} 必须为字符串")
+        else:
+            result[key] = value.strip()[:1200]
+    return result
+
+
 def _universe_round_focus(round_num: int, total_rounds: int) -> str:
     if round_num == 1:
         return "【第 1 轮：立论阐述】请结合你所在宇宙的亲历经验和付出的真实代价，阐明你对议题的初始立场与核心论据。"
@@ -337,7 +421,7 @@ class RoundtableEngine:
                     "status": s["status"],
                 })
             # 发言顺序：推演浅 → 深
-        universes.sort(key=lambda u: u["stages_done"])
+        universes.sort(key=lambda u: (u["stages_done"], u["session_id"]))
 
         related = []
         cards_data = RelationshipAgentStore.get_current(project_id)
@@ -365,15 +449,19 @@ class RoundtableEngine:
         topic = dialog["topic"]
         total_rounds = max(1, min(5, int(dialog.get("total_rounds", 1))))
         dialog["total_rounds"] = total_rounds
+        deadline_at = time.monotonic() + ROUNDTABLE_DEADLINE_SECONDS
 
         sessions = {
             p["session_id"]: EvolutionStore.get(dialog["project_id"], p["session_id"])
             for p in dialog["participants"] if p["type"] == "universe"
         }
+        persisted_cards = RelationshipAgentStore.get_current(dialog["project_id"]) or {}
+        cards_map = {c.get("person_ref"): c for c in (persisted_cards.get("cards") or []) if isinstance(c, dict)}
         related_cards = {
-            p["person_ref"]: p["_card"]
+            p["person_ref"]: p.get("_card") or cards_map.get(p["person_ref"])
             for p in dialog["participants"] if p["type"] == "related"
         }
+        related_cards = {k: v for k, v in related_cards.items() if v}
         # _card 是 API 层注入的人格卡完整数据（不落盘，运行时剥离）
         corrections_map = RelationshipAgentStore.get_corrections(dialog["project_id"])
 
@@ -453,7 +541,7 @@ class RoundtableEngine:
                 current_mem = participant_core_memories.get(p["session_id"]) or LettaCoreMemoryManager.init_universe_core_memory(session, personal_model)
                 mem_formatted = LettaCoreMemoryManager.format_core_memory_block(current_mem)
 
-                raw_res = _chat_with_retry(
+                raw_res = _chat_with_roundtable_deadline(
                     self.llm,
                     messages=[
                         {"role": "system", "content": UNIVERSE_SYSTEM.format(
@@ -477,8 +565,11 @@ class RoundtableEngine:
                     ],
                     max_tokens=800,
                     expect_json=True,
+                    deadline=deadline_at,
                 )
                 speech_text, updated_mem, edits = _parse_agent_speech_output(raw_res, current_mem)
+                if not speech_text:
+                    raise ValueError("宇宙席位返回空发言")
                 participant_core_memories[p["session_id"]] = updated_mem
 
                 emit({
@@ -533,7 +624,7 @@ class RoundtableEngine:
                 current_mem = participant_core_memories.get(p["person_ref"]) or LettaCoreMemoryManager.init_related_core_memory(card, personal_model)
                 mem_formatted = LettaCoreMemoryManager.format_core_memory_block(current_mem)
 
-                raw_res = _chat_with_retry(
+                raw_res = _chat_with_roundtable_deadline(
                     self.llm,
                     messages=[
                         {"role": "system", "content": RELATED_SYSTEM.format(
@@ -563,8 +654,11 @@ class RoundtableEngine:
                     ],
                     max_tokens=800,
                     expect_json=True,
+                    deadline=deadline_at,
                 )
                 speech_text, updated_mem, edits = _parse_agent_speech_output(raw_res, current_mem)
+                if not speech_text:
+                    raise ValueError("关系人席位返回空发言")
                 participant_core_memories[p["person_ref"]] = updated_mem
 
                 emit({
@@ -617,11 +711,17 @@ class RoundtableEngine:
             for s in speeches
         ]
 
-        moderation = _chat_with_retry(
+        moderation = _validate_moderation_payload(_chat_with_roundtable_deadline(
             self.llm,
             messages=[
                 {"role": "system", "content": MODERATOR_SYSTEM.format(
                     summary_style=SUMMARY_STYLE_RULES,
+                ) + (
+                    "\n当前模式为单宇宙反思：禁止声称跨宇宙收敛、独立印证或宿命必然性；"
+                    "epistemic_consensus 中的比较字段必须为 null，并说明证据不足。"
+                    if dialog.get("comparison_mode") == "single_universe_reflection" else
+                    "\n当前模式为关系人视角：禁止将关系人发言当作独立客观证据。"
+                    if dialog.get("comparison_mode") == "related_perspectives" else ""
                 )},
                 {"role": "user", "content": MODERATOR_USER.format(
                     topic=topic,
@@ -632,7 +732,17 @@ class RoundtableEngine:
             ],
             max_tokens=8192,
             expect_json=True,
-        )
+            deadline=deadline_at,
+        ))
+
+        consensus = moderation.setdefault("epistemic_consensus", {})
+        if dialog.get("comparison_mode") != "cross_universe":
+            consensus["convergence_index"] = None
+            consensus["inevitability_score"] = None
+            consensus["leverage_ratio"] = None
+            moderation["comparison_valid"] = False
+        else:
+            moderation["comparison_valid"] = True
 
         dialog["moderation"] = moderation
         dialog["transcript"] = speeches
@@ -693,7 +803,11 @@ class RoundtableEngine:
                     f"- {e['stage_label']}{note}: {e.get('state_snapshot', '')}"
                 )
 
-            current_mem = LettaCoreMemoryManager.init_universe_core_memory(session, personal_model)
+            current_mem = next(
+                (s.get("core_memory") for s in reversed(prior_speeches)
+                 if s.get("ref") == speaker_ref and isinstance(s.get("core_memory"), dict)),
+                None,
+            ) or LettaCoreMemoryManager.init_universe_core_memory(session, personal_model)
             mem_formatted = LettaCoreMemoryManager.format_core_memory_block(current_mem)
 
             system_prompt = UNIVERSE_SYSTEM.format(
@@ -737,7 +851,11 @@ class RoundtableEngine:
             if not card:
                 card = {"person_ref": person_ref, "relation_kind": "关系人", "persona": "关系人"}
 
-            current_mem = LettaCoreMemoryManager.init_related_core_memory(card, personal_model)
+            current_mem = next(
+                (s.get("core_memory") for s in reversed(prior_speeches)
+                 if s.get("ref") == person_ref and isinstance(s.get("core_memory"), dict)),
+                None,
+            ) or LettaCoreMemoryManager.init_related_core_memory(card, personal_model)
             mem_formatted = LettaCoreMemoryManager.format_core_memory_block(current_mem)
 
             corrections_map = RelationshipAgentStore.get_corrections(project_id)
@@ -804,7 +922,8 @@ class RoundtableEngine:
             "content": speech_text,
             "core_memory": updated_mem,
             "core_memory_edits": edits,
-            "is_interjection_reply": True
+            "is_interjection_reply": True,
+            "round": max([s.get("round", 1) for s in prior_speeches if isinstance(s, dict)] or [1]),
         }
 
         if "transcript" not in dialog:

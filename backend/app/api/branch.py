@@ -83,6 +83,8 @@ def generate_branches():
         set_locale(current_locale)
         gen_logger = get_logger('prism.branch.generate')
         try:
+            if task_manager.is_cancelled(task_id):
+                return
             task_manager.update_task(
                 task_id,
                 status=TaskStatus.PROCESSING,
@@ -91,6 +93,8 @@ def generate_branches():
             )
 
             def progress_callback(stage, message):
+                if task_manager.is_cancelled(task_id):
+                    raise RuntimeError("任务已取消")
                 task_manager.update_task(
                     task_id,
                     message=message,
@@ -104,6 +108,8 @@ def generate_branches():
                 branch_count=branch_count,
                 progress_callback=progress_callback,
             )
+            if task_manager.is_cancelled(task_id):
+                return
             result["project_id"] = project_id
             BranchStore.save(project_id, result)
 

@@ -252,6 +252,13 @@
         </div>
         <div class="materials-controls">
           <div class="field inline">
+            <label>{{ t('profile.create.fMaterialMode') }}</label>
+            <select v-model="materialMode">
+              <option value="personal">{{ t('profile.create.personalMode') }}</option>
+              <option value="fictional">{{ t('profile.create.fictionalMode') }}</option>
+            </select>
+          </div>
+          <div class="field inline">
             <label>{{ t('profile.create.fMaterialType') }}</label>
             <select v-model="materialType">
               <option v-for="m in materialTypes" :key="m.value" :value="m.value">{{ t(`profile.mat.${m.value}`) }}</option>
@@ -397,7 +404,7 @@ const presetTags = [
 ]
 const materialTypes = [
   { value: 'diary' }, { value: 'reflection' }, { value: 'resume' },
-  { value: 'preference' }, { value: 'chat_log' }, { value: 'other' }
+  { value: 'preference' }, { value: 'chat_log' }, { value: 'literary' }, { value: 'other' }
 ]
 const big5Dims = [
   { key: 'openness' }, { key: 'conscientiousness' }, { key: 'extraversion' },
@@ -425,6 +432,7 @@ const customTagInput = ref('')
 const customTags = ref([])
 const pastedText = ref('')
 const materialType = ref('diary')
+const materialMode = ref('personal')
 const timeRange = ref('')
 const selectedFiles = ref([])
 const isDragOver = ref(false)
@@ -579,6 +587,7 @@ function saveDraft() {
         form: JSON.parse(JSON.stringify(form)),
         pastedText: pastedText.value,
         materialType: materialType.value,
+        materialMode: materialMode.value,
         timeRange: timeRange.value,
         customTags: [...customTags.value],
         big5Enabled: big5Enabled.value,
@@ -611,6 +620,7 @@ function loadDraft() {
       hasContent = true
     }
     if (data.materialType) materialType.value = data.materialType
+    if (data.materialMode) materialMode.value = data.materialMode
     if (data.timeRange) timeRange.value = data.timeRange
     if (data.customTags?.length) {
       customTags.value = data.customTags
@@ -656,12 +666,17 @@ function resetForm() {
 }
 
 watch(
-  [() => form, pastedText, materialType, timeRange, customTags, big5Enabled],
+  [() => form, pastedText, materialType, materialMode, timeRange, customTags, big5Enabled],
   () => {
     saveDraft()
   },
   { deep: true }
 )
+
+watch(materialMode, value => {
+  if (value === 'fictional') materialType.value = 'literary'
+  else if (materialType.value === 'literary') materialType.value = 'diary'
+})
 
 // ============== 提交流程 ==============
 
@@ -674,17 +689,27 @@ function sleep(ms) {
 }
 
 async function pollTask(taskId, statusFn) {
-  for (;;) {
+  const deadline = Date.now() + 15 * 60 * 1000
+  let failures = 0
+  while (Date.now() < deadline) {
     await sleep(3000)
-    const res = await statusFn(taskId)
-    const task = res.data
-    progress.value = task.progress || 0
-    phaseMessage.value = task.message || ''
-    if (task.status === 'completed') return
-    if (task.status === 'failed') {
-      throw new Error(task.message || task.error || 'task failed')
+    try {
+      const res = await statusFn(taskId)
+      failures = 0
+      const task = res.data
+      progress.value = task.progress || 0
+      phaseMessage.value = task.message || ''
+      if (task.status === 'completed') return
+      if (task.status === 'failed' || task.status === 'cancelled' || task.status === 'stale') {
+        throw new Error(task.message || task.error || 'task failed')
+      }
+    } catch (error) {
+      failures += 1
+      if (failures >= 5) throw error
+      await sleep(Math.min(30000, 1000 * 2 ** failures))
     }
   }
+  throw new Error('任务超过最大等待时间，请稍后从项目页恢复')
 }
 
 async function handleGenerate() {
@@ -716,6 +741,7 @@ async function handleGenerate() {
       const fd = new FormData()
       fd.append('project_id', projectId.value)
       fd.append('material_type', materialType.value)
+      fd.append('material_mode', materialMode.value)
       if (timeRange.value.trim()) fd.append('time_range', timeRange.value.trim())
       if (pastedText.value.trim()) fd.append('text', pastedText.value.trim())
       for (const f of selectedFiles.value) fd.append('files', f)
@@ -742,11 +768,14 @@ async function handleGenerate() {
     phase.value = 'synthesizing'
     progress.value = 0
     phaseMessage.value = t('profile.create.phSynthesizing')
-    const genRes = await generatePersonalModel({ project_id: projectId.value })
+    const analysisScope = materialMode.value === 'fictional' && !hasFormInput.value ? 'literary' : 'personal'
+    const genRes = await generatePersonalModel({ project_id: projectId.value, scope: analysisScope })
     await pollTask(genRes.data.task_id, getGenerateStatus)
 
     // 6. 跳转画像页
-    router.push(`/profile/${projectId.value}`)
+    router.push(analysisScope === 'literary'
+      ? `/profile/${projectId.value}?scope=literary`
+      : `/profile/${projectId.value}`)
   } catch (e) {
     phase.value = 'error'
     errorMessage.value = e?.message || String(e)

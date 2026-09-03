@@ -67,6 +67,12 @@ def create_app(config_class=Config):
     app.register_blueprint(evolution_bp, url_prefix='/api/evolution')
     app.register_blueprint(relationship_bp, url_prefix='/api/relationship')
     app.register_blueprint(roundtable_bp, url_prefix='/api/roundtable')
+
+    # Daemon workers do not survive a process restart. Reconcile only tasks
+    # that have already missed a short heartbeat window, preserving tasks that
+    # may still be owned by another live worker.
+    from .models.task import TaskManager
+    TaskManager().recover_interrupted_tasks()
     
     # 健康检查
     @app.route('/health')

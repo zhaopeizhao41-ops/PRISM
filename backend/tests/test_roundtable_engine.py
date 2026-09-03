@@ -3,7 +3,7 @@
 import pytest
 
 from app.services import roundtable_engine as rt
-from app.services.roundtable_engine import RoundtableEngine
+from app.services.roundtable_engine import RoundtableEngine, _chat_with_retry, _validate_moderation_payload
 
 
 def _session(sid, archetype, positioning, depth):
@@ -85,6 +85,32 @@ def _install_stores(monkeypatch, sessions, cards):
 
 def test_universe_label():
     assert RoundtableEngine._universe_label({"source_branch_archetype": "builder"}) == "builder宇宙的我"
+
+
+def test_moderation_payload_is_normalized_and_scores_are_bounded():
+    result = _validate_moderation_payload({
+        "epistemic_consensus": {"convergence_index": 84.8, "inevitability_score": None},
+        "audit": ["discard me", {"speaker": "u1"}],
+        "open_questions": ["问题"],
+        "summary": "  结论  ",
+    })
+    assert result["epistemic_consensus"]["convergence_index"] == 84
+    assert result["audit"] == [{"speaker": "u1"}]
+    assert result["summary"] == "结论"
+
+
+def test_moderation_payload_rejects_invalid_score():
+    with pytest.raises(ValueError, match="0-100"):
+        _validate_moderation_payload({"epistemic_consensus": {"leverage_ratio": 101}})
+
+
+def test_roundtable_retry_honors_expired_deadline():
+    class NeverCalled:
+        def chat(self, **_kwargs):
+            raise AssertionError("expired deadline must short-circuit")
+
+    with pytest.raises(TimeoutError, match="运行时限"):
+        _chat_with_retry(NeverCalled(), messages=[], max_tokens=10, deadline=0)
 
 
 def test_list_participants_sorts_by_depth(monkeypatch, sessions, card):

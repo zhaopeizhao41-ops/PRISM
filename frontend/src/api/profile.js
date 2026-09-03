@@ -118,6 +118,13 @@ export function getPersonalModel(projectId) {
   })
 }
 
+export function getLiteraryAnalysis(projectId) {
+  return service({
+    url: `/api/profile/literary-analysis/${projectId}`,
+    method: 'get'
+  })
+}
+
 /**
  * 画像项目列表（首页）
  * @returns {Promise} [{ project_id, name, created_at, model_version, branch_count, ... }]

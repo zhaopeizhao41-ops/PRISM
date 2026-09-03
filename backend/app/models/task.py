@@ -5,12 +5,17 @@
 
 import uuid
 import threading
-from datetime import datetime
+import json
+import os
+import tempfile
+from contextlib import contextmanager
+from datetime import datetime, timedelta
 from enum import Enum
 from typing import Dict, Any, Optional
 from dataclasses import dataclass, field
 
 from ..utils.locale import t
+from ..config import Config
 
 
 class TaskStatus(str, Enum):
@@ -19,6 +24,8 @@ class TaskStatus(str, Enum):
     PROCESSING = "processing"    # 处理中
     COMPLETED = "completed"      # 已完成
     FAILED = "failed"            # 失败
+    CANCELLED = "cancelled"
+    STALE = "stale"
 
 
 @dataclass
@@ -69,8 +76,91 @@ class TaskManager:
                 if cls._instance is None:
                     cls._instance = super().__new__(cls)
                     cls._instance._tasks: Dict[str, Task] = {}
+                    cls._instance._cancel_events: Dict[str, threading.Event] = {}
                     cls._instance._task_lock = threading.Lock()
+                    cls._instance._load_persisted()
         return cls._instance
+
+    @property
+    def _task_path(self) -> str:
+        path = os.path.join(Config.UPLOAD_FOLDER, "tasks.json")
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        return path
+
+    def _load_persisted(self) -> None:
+        with self._task_lock:
+            self._merge_persisted_locked()
+
+    @contextmanager
+    def _file_lock(self):
+        """Serialize task-file replacement across worker processes."""
+        lock_path = self._task_path + ".lock"
+        os.makedirs(os.path.dirname(lock_path), exist_ok=True)
+        with open(lock_path, "a+b") as lock_file:
+            lock_file.seek(0)
+            if os.name == "nt":
+                import msvcrt
+                lock_file.write(b"0")
+                lock_file.flush()
+                lock_file.seek(0)
+                msvcrt.locking(lock_file.fileno(), msvcrt.LK_LOCK, 1)
+            else:
+                import fcntl
+                fcntl.flock(lock_file.fileno(), fcntl.LOCK_EX)
+            try:
+                yield
+            finally:
+                if os.name == "nt":
+                    import msvcrt
+                    lock_file.seek(0)
+                    msvcrt.locking(lock_file.fileno(), msvcrt.LK_UNLCK, 1)
+                else:
+                    import fcntl
+                    fcntl.flock(lock_file.fileno(), fcntl.LOCK_UN)
+
+    def _merge_persisted_locked(self) -> None:
+        """Merge newer disk records without clobbering local updates."""
+        try:
+            with open(self._task_path, "r", encoding="utf-8") as f:
+                records = json.load(f)
+        except (OSError, ValueError, json.JSONDecodeError):
+            return
+        for record in records if isinstance(records, list) else []:
+            try:
+                task_id = record["task_id"]
+                disk_updated = datetime.fromisoformat(record["updated_at"])
+                local = self._tasks.get(task_id)
+                if local and local.updated_at >= disk_updated:
+                    continue
+                self._tasks[task_id] = Task(
+                    task_id=task_id, task_type=record.get("task_type", ""),
+                    status=TaskStatus(record.get("status", "failed")),
+                    created_at=datetime.fromisoformat(record["created_at"]),
+                    updated_at=disk_updated,
+                    progress=record.get("progress", 0), message=record.get("message", ""),
+                    result=record.get("result"), error=record.get("error"),
+                    metadata=record.get("metadata") or {}, progress_detail=record.get("progress_detail") or {},
+                )
+                self._cancel_events.setdefault(task_id, threading.Event())
+                if self._tasks[task_id].status == TaskStatus.CANCELLED:
+                    self._cancel_events[task_id].set()
+            except (KeyError, ValueError, TypeError):
+                continue
+
+    def _persist_locked(self) -> None:
+        path = self._task_path
+        with self._file_lock():
+            self._merge_persisted_locked()
+            fd, tmp = tempfile.mkstemp(prefix=".tasks-", suffix=".tmp", dir=os.path.dirname(path))
+            try:
+                with os.fdopen(fd, "w", encoding="utf-8") as f:
+                    json.dump([task.to_dict() for task in self._tasks.values()], f, ensure_ascii=False, indent=2)
+                    f.flush()
+                    os.fsync(f.fileno())
+                os.replace(tmp, path)
+            finally:
+                if os.path.exists(tmp):
+                    os.unlink(tmp)
     
     def create_task(self, task_type: str, metadata: Optional[Dict] = None) -> str:
         """
@@ -97,13 +187,22 @@ class TaskManager:
         
         with self._task_lock:
             self._tasks[task_id] = task
+            self._cancel_events[task_id] = threading.Event()
+            self._persist_locked()
         
         return task_id
     
     def get_task(self, task_id: str) -> Optional[Task]:
         """获取任务"""
         with self._task_lock:
-            return self._tasks.get(task_id)
+            task = self._tasks.get(task_id)
+            if task and task.status in {TaskStatus.PENDING, TaskStatus.PROCESSING}:
+                if datetime.now() - task.updated_at > timedelta(minutes=30):
+                    task.status = TaskStatus.STALE
+                    task.message = "任务超过心跳期限"
+                    task.error = "stale task"
+                    self._persist_locked()
+            return task
     
     def update_task(
         self,
@@ -130,6 +229,15 @@ class TaskManager:
         with self._task_lock:
             task = self._tasks.get(task_id)
             if task:
+                # A cancelled task is terminal. Background workers may still
+                # return from an in-flight API call, but must not resurrect it.
+                if task.status in {
+                    TaskStatus.CANCELLED,
+                    TaskStatus.STALE,
+                    TaskStatus.FAILED,
+                    TaskStatus.COMPLETED,
+                }:
+                    return False
                 task.updated_at = datetime.now()
                 if status is not None:
                     task.status = status
@@ -143,6 +251,46 @@ class TaskManager:
                     task.error = error
                 if progress_detail is not None:
                     task.progress_detail = progress_detail
+                self._persist_locked()
+                return True
+        return False
+
+    def cancel_task(self, task_id: str, reason: str = "任务已取消") -> Optional[Task]:
+        """Request cancellation and publish a terminal cancelled state."""
+        with self._task_lock:
+            task = self._tasks.get(task_id)
+            if not task:
+                return None
+            if task.status in {TaskStatus.COMPLETED, TaskStatus.FAILED, TaskStatus.STALE, TaskStatus.CANCELLED}:
+                return task
+            task.status = TaskStatus.CANCELLED
+            task.updated_at = datetime.now()
+            task.message = reason
+            task.error = reason
+            self._cancel_events.setdefault(task_id, threading.Event()).set()
+            self._persist_locked()
+            return task
+
+    def is_cancelled(self, task_id: str) -> bool:
+        """Return whether a worker should stop at its next safe checkpoint."""
+        with self._task_lock:
+            task = self._tasks.get(task_id)
+            return bool(task and task.status == TaskStatus.CANCELLED)
+
+    def recover_interrupted_tasks(self, max_idle_seconds: int = 120) -> int:
+        """Mark active tasks with no recent heartbeat as stale at startup."""
+        cutoff = datetime.now() - timedelta(seconds=max_idle_seconds)
+        recovered = 0
+        with self._task_lock:
+            for task in self._tasks.values():
+                if task.status in {TaskStatus.PENDING, TaskStatus.PROCESSING} and task.updated_at < cutoff:
+                    task.status = TaskStatus.STALE
+                    task.message = "服务重启后任务未恢复"
+                    task.error = "interrupted task"
+                    recovered += 1
+            if recovered:
+                self._persist_locked()
+        return recovered
     
     def complete_task(self, task_id: str, result: Dict):
         """标记任务完成"""
@@ -179,8 +327,10 @@ class TaskManager:
         with self._task_lock:
             old_ids = [
                 tid for tid, task in self._tasks.items()
-                if task.created_at < cutoff and task.status in [TaskStatus.COMPLETED, TaskStatus.FAILED]
+                if task.created_at < cutoff and task.status in [TaskStatus.COMPLETED, TaskStatus.FAILED, TaskStatus.CANCELLED, TaskStatus.STALE]
             ]
             for tid in old_ids:
                 del self._tasks[tid]
+                self._cancel_events.pop(tid, None)
+            self._persist_locked()
 

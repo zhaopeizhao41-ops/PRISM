@@ -29,7 +29,7 @@ ALLOWED_RELATION_KINDS = {"family", "friend", "colleague", "acquaintance", "ment
 # 自我指称的实体名（排除在候选之外）
 SELF_NAMES = {"user", "用户", "本人", "我", "self"}
 # 入选所需最少关联事实数
-MIN_FACT_COUNT = 1
+MIN_FACT_COUNT = 2
 
 
 def _is_transient_api_error(error: Exception) -> bool:
@@ -205,6 +205,8 @@ class RelationshipAgentGenerator:
                 "fact_count": len(facts),
                 "facts": facts[:8],
                 "thin": len(facts) < 3,
+                "provenance": "graph_grounded",
+                "mediated_only": False,
             })
 
         # 若图谱候选为空或较少，直接从 personal_model.relationships 补充获取
@@ -221,6 +223,8 @@ class RelationshipAgentGenerator:
                 "fact_count": 2,
                 "facts": [rel.get("influence", "")] if rel.get("influence") else ["相关人物"],
                 "thin": False,
+                "provenance": "profile_only",
+                "mediated_only": True,
             })
 
         # 影响力降序（无画像信息时按事实数）
@@ -236,6 +240,7 @@ class RelationshipAgentGenerator:
         personal_model: Dict[str, Any],
         selected_names: List[str],
         progress_callback=None,
+        allow_mediated: bool = False,
     ) -> List[Dict[str, Any]]:
         """
         为勾选的关系人生成人格卡（顺序逐个生成，便于进度上报）。
@@ -249,6 +254,9 @@ class RelationshipAgentGenerator:
         unknown = [n for n in selected_names if n not in by_name]
         if unknown:
             raise ValueError(f"以下关系人不在候选列表中: {', '.join(unknown)}")
+        mediated = [n for n in selected_names if by_name[n].get("mediated_only")]
+        if mediated and not allow_mediated:
+            raise ValueError(f"以下关系人缺少图谱事实，需显式确认后生成: {', '.join(mediated)}")
 
         model_context = json.dumps({
             key: personal_model.get(key)

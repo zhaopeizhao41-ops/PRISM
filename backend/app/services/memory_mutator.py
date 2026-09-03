@@ -68,12 +68,12 @@ class AtomicMemoryMutator:
                 })
                 
         # 3. 初始资源/困境
-        raw_aspirations = personal_model.get("aspirations") or []
+        raw_aspirations = personal_model.get("aspirations") or personal_model.get("goals") or []
         wants = []
         if isinstance(raw_aspirations, list):
             for a in raw_aspirations:
                 if isinstance(a, dict):
-                    if a.get("polarity") == "want" or not a.get("polarity"):
+                    if a.get("polarity") == "want":
                         wants.append(a.get("content", ""))
                 elif isinstance(a, str):
                     wants.append(a)

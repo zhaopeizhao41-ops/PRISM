@@ -126,6 +126,9 @@
       "fAvoid": "Things you clearly do NOT want",
       "phAvoid": "Lines you genuinely don't want to cross",
       "fMaterialType": "Material type",
+      "fMaterialMode": "Material mode",
+      "personalMode": "Personal material",
+      "fictionalMode": "Literary / fictional material",
       "fTimeRange": "Time range (optional)",
       "phTimeRange": "Time span the materials cover",
       "phPaste": "Paste diaries / reflections / chat logs here…",
@@ -181,7 +184,19 @@
       "episodicAnchors": "Episodic Experience Anchors",
       "defenseMechanisms": "Psychological Defense & Anchors",
       "prideTitle": "Pride & Dignity Boundaries",
-      "traumaTitle": "Trauma & Vulnerability Triggers"
+      "traumaTitle": "Trauma & Vulnerability Triggers",
+      "literaryTitle": "Literary material analysis",
+      "literaryNotice": "This view analyzes fictional characters and themes only. It does not enter your personal profile or enable relationship or life simulation."
+    },
+    "mat": {
+      "structured_form": "Structured form",
+      "resume": "Resume",
+      "chat_log": "Chat log",
+      "diary": "Diary",
+      "reflection": "Reflection",
+      "preference": "Preference list",
+      "literary": "Literary work",
+      "other": "Other"
     }
   },
   "branch": {

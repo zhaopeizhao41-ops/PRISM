@@ -11,6 +11,7 @@ A 的 timeline 降级为参考轨迹（允许推演偏离，divergence_note 让�
 """
 
 import json
+import copy
 import time
 import uuid
 from typing import Any, Dict, List, Optional
@@ -312,6 +313,7 @@ class EvolutionEngine:
         self,
         session: Dict[str, Any],
         injected_event: Optional[str] = None,
+        request_id: Optional[str] = None,
     ) -> Dict[str, Any]:
         """
         推进一个阶段（1 次 LLM 调用，同步返回）。
@@ -322,6 +324,19 @@ class EvolutionEngine:
         """
         if session.get("status") != "active":
             raise ValueError(f"会话状态为 {session.get('status')}，无法推进")
+
+        original_session = session
+        session = copy.deepcopy(session)
+
+        def commit_session() -> Dict[str, Any]:
+            original_session.clear()
+            original_session.update(session)
+            return original_session
+        stage_runs = session.setdefault("stage_runs", {})
+        if request_id:
+            for run in stage_runs.values():
+                if isinstance(run, dict) and run.get("request_id") == request_id:
+                    return {"fork_required": bool(run.get("fork_required")), "fork": run.get("fork"), "session": commit_session(), "replayed": True}
 
         history: List[Dict[str, Any]] = session["stage_history"]
         plan: List[Dict[str, Any]] = session["stage_plan"]
@@ -345,7 +360,9 @@ class EvolutionEngine:
             None,
         )
         if blocking_fork:
-            return {"fork_required": True, "fork": blocking_fork, "session": session}
+            if request_id:
+                stage_runs[str(stage_no)] = {"request_id": request_id, "status": "fork_required", "fork_required": True, "fork": blocking_fork}
+            return {"fork_required": True, "fork": blocking_fork, "session": commit_session()}
 
         # 2. 确定性真实感断路器拦截（0 Token 本地状态机断言）
         realism_state: Dict[str, Any] = session.setdefault("realism_state", {})
@@ -356,11 +373,13 @@ class EvolutionEngine:
         )
         if circuit_fork:
             session.setdefault("pending_forks", []).append(circuit_fork)
+            if request_id:
+                stage_runs[str(stage_no)] = {"request_id": request_id, "status": "fork_required", "fork_required": True, "fork": circuit_fork}
             logger.warning(
                 f"会话 {session.get('session_id')} 阶段 {stage_no} 触发真实感断路器拦截: "
                 f"{circuit_fork.get('circuit_breaker')}"
             )
-            return {"fork_required": True, "fork": circuit_fork, "session": session}
+            return {"fork_required": True, "fork": circuit_fork, "session": commit_session()}
 
         stage = plan[next_index]
 
@@ -511,6 +530,8 @@ class EvolutionEngine:
                 "cash_months": realism_state["finance_ledger"].get("cash_months"),
                 "debt_months": realism_state["finance_ledger"].get("debt_months"),
                 "income_stability": realism_state["finance_ledger"].get("income_stability"),
+                "known": realism_state["finance_ledger"].get("known", True),
+                "source": realism_state["finance_ledger"].get("source", "observed"),
             },
             "stress_carryover": realism_state.get("stress_carryover"),
             "relationships": [
@@ -588,6 +609,9 @@ class EvolutionEngine:
         if len(history) >= len(plan):
             session["status"] = "completed"
 
+        if request_id:
+            stage_runs[str(stage_no)] = {"request_id": request_id, "status": "committed", "fork_required": False}
+
         logger.info(
             f"推进会话 {session['session_id']} → 阶段 {next_index + 1}/{len(plan)}"
             f"  health→{realism_state.get('health_score')}"
@@ -596,7 +620,7 @@ class EvolutionEngine:
             f"  life_event→{(life_event or {}).get('id', 'none')}"
             + (f"  violations→{causal_violations}" if causal_violations else "")
         )
-        return {"fork_required": False, "session": session}
+        return {"fork_required": False, "session": commit_session()}
 
     # ---------- 解决假设分叉 ----------
 
@@ -613,10 +637,16 @@ class EvolutionEngine:
         if not fork:
             raise ValueError(f"分叉不存在: {fork_id}")
         if fork.get("resolved") is not None:
+            resolved_index = (fork.get("resolved") or {}).get("option_index")
+            if resolved_index == int(option_index):
+                return session
             raise ValueError("该分叉已裁决")
         options = fork.get("options") or []
         if not (0 <= int(option_index) < len(options)):
             raise ValueError("无效的选项序号")
+        effects = options[option_index].get("effects") or {}
+        if fork.get("is_emergency") and not effects:
+            raise ValueError("紧急断路器选项必须包含结构化 effects")
 
         fork["resolved"] = {
             "option_index": int(option_index),
@@ -624,6 +654,45 @@ class EvolutionEngine:
             "condition": options[option_index].get("condition", ""),
             "resolved_at": time.strftime("%Y-%m-%dT%H:%M:%S"),
         }
+        state = session.setdefault("realism_state", {})
+        finance = state.setdefault("finance_ledger", {"cash_months": 2, "debt_months": 0, "income_stability": 2})
+        before = {
+            "health_score": state.get("health_score", 80),
+            "cash_months": finance.get("cash_months", 2),
+            "debt_months": finance.get("debt_months", 0),
+            "stress_carryover": state.get("stress_carryover", 20),
+        }
+        for key, attr in (("health_delta", "health_score"), ("stress_delta", "stress_carryover")):
+            if isinstance(effects.get(key), int):
+                limit = (0, 100)
+                state[attr] = max(limit[0], min(limit[1], state.get(attr, before[attr]) + effects[key]))
+        finance_effects = effects.get("finance") or {}
+        for key, attr in (("cash_months_delta", "cash_months"), ("debt_months_delta", "debt_months")):
+            if isinstance(finance_effects.get(key), int):
+                finance[attr] = max(0, finance.get(attr, before[attr]) + finance_effects[key])
+        relation_effect = effects.get("relationship") or {}
+        if isinstance(relation_effect, dict):
+            for rel in state.get("relationships", []):
+                if rel.get("name") == relation_effect.get("person"):
+                    if isinstance(relation_effect.get("tension_delta"), int):
+                        rel["tension"] = max(0, min(100, rel.get("tension", 0) + relation_effect["tension_delta"]))
+                    if relation_effect.get("status"):
+                        rel["status"] = relation_effect["status"]
+        after = {
+            "health_score": state.get("health_score"),
+            "cash_months": finance.get("cash_months"),
+            "debt_months": finance.get("debt_months"),
+            "stress_carryover": state.get("stress_carryover"),
+        }
+        fork["resolved"]["effects"] = effects
+        fork["resolved"]["ledger_before"] = before
+        fork["resolved"]["ledger_after"] = after
+        breaker_key = fork.get("breaker_key") or fork.get("circuit_breaker")
+        if breaker_key:
+            episodes = state.setdefault("breaker_episodes", {})
+            episode = episodes.setdefault(breaker_key, {"episode_id": fork.get("episode_id")})
+            episode["status"] = "acknowledged"
+            episode["resolved_stage"] = fork.get("at_stage")
         logger.info(f"会话 {session['session_id']} 裁决分叉 {fork_id}: {fork['resolved']['label']}")
         return session
 

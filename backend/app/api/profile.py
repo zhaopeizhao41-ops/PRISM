@@ -23,11 +23,15 @@ from ..services.person_ontology import get_person_ontology
 from ..services.profile_materials import (
     MATERIAL_CONFIDENCE,
     VALID_MATERIAL_TYPES,
+    VALID_MATERIAL_MODES,
+    MATERIAL_TYPE_ALIASES,
     structured_form_to_text,
     free_material_to_text,
     merge_materials,
     material_fingerprint,
+    build_evidence_index,
     count_filled_fields,
+    canonicalize_goals,
 )
 from ..utils.file_parser import FileParser
 from ..utils.logger import get_logger
@@ -77,7 +81,21 @@ def _load_manifest(project_id: str) -> list:
         return []
     try:
         with open(path, 'r', encoding='utf-8') as f:
-            return json.load(f)
+            data = json.load(f)
+            entries = data.get("materials", []) if isinstance(data, dict) else data
+            migrated = []
+            for item in entries if isinstance(entries, list) else []:
+                if not isinstance(item, dict):
+                    continue
+                was_legacy = "material_mode" not in item or item.get("schema_version", 1) < 2
+                item.setdefault("material_mode", "personal")
+                if item.get("material_type") in MATERIAL_TYPE_ALIASES:
+                    item["material_type"] = MATERIAL_TYPE_ALIASES[item["material_type"]]
+                item.setdefault("schema_version", 2)
+                if was_legacy or item.get("legacy"):
+                    item["legacy"] = True
+                migrated.append(item)
+            return migrated
     except (OSError, json.JSONDecodeError):
         return []
 
@@ -85,8 +103,22 @@ def _load_manifest(project_id: str) -> list:
 def _save_manifest(project_id: str, manifest: list) -> None:
     path = _get_manifest_path(project_id)
     os.makedirs(os.path.dirname(path), exist_ok=True)
-    with open(path, 'w', encoding='utf-8') as f:
-        json.dump(manifest, f, ensure_ascii=False, indent=2)
+    tmp = path + ".tmp"
+    with open(tmp, 'w', encoding='utf-8') as f:
+        json.dump({"schema_version": 2, "materials": manifest}, f, ensure_ascii=False, indent=2)
+    os.replace(tmp, path)
+
+
+def _literary_analysis_path(project_id: str) -> str:
+    return os.path.join(ProjectManager._get_project_dir(project_id), 'literary_analysis.json')
+
+
+def _save_literary_analysis(project_id: str, model: dict) -> None:
+    path = _literary_analysis_path(project_id)
+    tmp = path + '.tmp'
+    with open(tmp, 'w', encoding='utf-8') as f:
+        json.dump(model, f, ensure_ascii=False, indent=2)
+    os.replace(tmp, path)
 
 
 def _append_manifest_entry(project_id: str, entry: dict) -> bool:
@@ -98,6 +130,29 @@ def _append_manifest_entry(project_id: str, entry: dict) -> bool:
         manifest.append(entry)
         _save_manifest(project_id, manifest)
         return True
+
+
+def _chunk_provenance(chunks: list[str], entries: list[dict]) -> list[dict]:
+    """Attach stable local material/chunk identities to each Zep episode."""
+    material_ids = [m.get("material_id") for m in entries if m.get("material_id")]
+    indexed = [
+        (m.get("material_id"), c.get("chunk_id"), str(c.get("text") or ""))
+        for m in entries for c in (m.get("chunks") or [])
+    ]
+    result = []
+    for chunk in chunks:
+        text = str(chunk or "")
+        matches = []
+        for material_id, chunk_id, evidence_text in indexed:
+            left = " ".join(text.split())
+            right = " ".join(evidence_text.split())
+            if (len(left) >= 40 and left[:40] in right) or (len(right) >= 40 and right[:40] in left):
+                matches.append(chunk_id)
+        result.append({
+            "source_material_ids": material_ids,
+            "evidence_chunk_ids": matches[:8],
+        })
+    return result
 
 
 # ============== 项目管理 ==============
@@ -167,9 +222,14 @@ def submit_structured_input():
     entry = {
         "material_id": f"mat_{fingerprint}",
         "material_type": "structured_form",
+        "material_mode": "personal",
+        "schema_version": 2,
         "fingerprint": fingerprint,
         "char_count": len(text),
         "preview": text[:200],
+        "normalized_text": text,
+        "chunks": build_evidence_index(f"mat_{fingerprint}", text),
+        "goals": canonicalize_goals(form),
     }
     if not _append_manifest_entry(project_id, entry):
         return jsonify({
@@ -215,10 +275,22 @@ def submit_material():
         return error
 
     material_type = request.form.get('material_type', 'other')
+    material_type = MATERIAL_TYPE_ALIASES.get(material_type, material_type)
     if material_type not in VALID_MATERIAL_TYPES:
         return jsonify({
             "success": False,
             "error": f"material_type must be one of: {sorted(VALID_MATERIAL_TYPES)}"
+        }), 400
+    material_mode = request.form.get('material_mode', 'personal').strip().lower()
+    if material_mode not in VALID_MATERIAL_MODES:
+        return jsonify({
+            "success": False,
+            "error": f"material_mode must be one of: {sorted(VALID_MATERIAL_MODES)}"
+        }), 400
+    if material_mode == "fictional" and material_type not in {"literary", "other"}:
+        return jsonify({
+            "success": False,
+            "error": "fictional material_mode requires material_type=literary or other"
         }), 400
     time_range = request.form.get('time_range', '').strip() or None
 
@@ -228,7 +300,7 @@ def submit_material():
     # 1) 粘贴文本
     pasted = request.form.get('text', '').strip()
     if pasted:
-        block = free_material_to_text(pasted, material_type, time_range)
+        block = free_material_to_text(pasted, material_type, time_range, material_mode)
         blocks.append(block)
         results.append({
             "material_id": f"mat_{material_fingerprint(block)}",
@@ -257,7 +329,7 @@ def submit_material():
         })
         raw_text = FileParser.extract_text(file_info["path"])
         raw_text = TextProcessor.preprocess_text(raw_text)
-        block = free_material_to_text(raw_text, material_type, time_range)
+        block = free_material_to_text(raw_text, material_type, time_range, material_mode)
         blocks.append(block)
         results.append({
             "material_id": f"mat_{material_fingerprint(block)}",
@@ -281,9 +353,13 @@ def submit_material():
         entry = {
             "material_id": result["material_id"],
             "material_type": material_type,
+            "material_mode": material_mode,
+            "schema_version": 2,
             "fingerprint": fingerprint,
             "char_count": result["char_count"],
             "preview": block[:200],
+            "normalized_text": block,
+            "chunks": build_evidence_index(result["material_id"], block),
         }
         if _append_manifest_entry(project_id, entry):
             added.append(block)
@@ -359,6 +435,7 @@ def build_profile_graph():
                     "project_id": project_id,
                     "task_id": project.graph_build_task_id,
                     "graph_id": project.graph_id,
+                    "literary_graph_id": project.literary_graph_id,
                     "reused": True,
                     "message": "图谱构建进行中",
                 }
@@ -372,6 +449,7 @@ def build_profile_graph():
                 "project_id": project_id,
                 "task_id": project.graph_build_task_id,
                 "graph_id": project.graph_id,
+                "literary_graph_id": project.literary_graph_id,
                 "reused": True,
                 "message": "图谱已构建完成",
             }
@@ -384,12 +462,18 @@ def build_profile_graph():
                 GraphBuilderService(api_key=Config.ZEP_API_KEY).delete_graph(project.graph_id)
             except Exception:
                 logger.exception(f"删除旧图谱失败: {project.graph_id}")
+        if project.literary_graph_id:
+            try:
+                GraphBuilderService(api_key=Config.ZEP_API_KEY).delete_graph(project.literary_graph_id)
+            except Exception:
+                logger.exception(f"删除旧文学图谱失败: {project.literary_graph_id}")
         from ..services.evolution_graph_writer import delete_evolution_graph
         try:
             delete_evolution_graph(project)
         except Exception:
             logger.exception("删除推演图谱失败")
         project.graph_id = None
+        project.literary_graph_id = None
         project.graph_build_task_id = None
         project.zep_batch_id = None
         project.zep_batch_operation_id = None
@@ -397,8 +481,22 @@ def build_profile_graph():
         project.status = ProjectStatus.ONTOLOGY_GENERATED
         ProjectManager.save_project(project)
 
-    text = ProjectManager.get_extracted_text(project_id)
-    if not text:
+    manifest = _load_manifest(project_id)
+    personal_entries = [m for m in manifest if m.get("material_mode", "personal") != "fictional"]
+    literary_entries = [m for m in manifest if m.get("material_mode") == "fictional"]
+    text = merge_materials([m.get("normalized_text", "") for m in personal_entries if m.get("normalized_text")])
+    literary_text = merge_materials([m.get("normalized_text", "") for m in literary_entries if m.get("normalized_text")])
+    if not text and not literary_text:
+        text = ProjectManager.get_extracted_text(project_id)
+    if not personal_entries and not literary_entries:
+        return jsonify({"success": False, "error": "项目尚无资料，请先提交资料"}), 400
+    if not personal_entries and not literary_text and not text:
+        return jsonify({
+            "success": False,
+            "error": "项目仅包含文学/虚构资料，无法构建个人图谱；请先添加 personal 材料",
+            "profile_scope": "fictional_only",
+        }), 409
+    if not text and not literary_text:
         return jsonify({"success": False, "error": "项目尚无资料，请先提交资料"}), 400
 
     if not Config.ZEP_API_KEY:
@@ -424,6 +522,8 @@ def build_profile_graph():
         set_locale(current_locale)
         build_logger = get_logger('prism.profile.build')
         try:
+            if task_manager.is_cancelled(task_id):
+                return
             task_manager.update_task(
                 task_id,
                 status=TaskStatus.PROCESSING,
@@ -432,66 +532,67 @@ def build_profile_graph():
             )
             builder = GraphBuilderService(api_key=Config.ZEP_API_KEY)
 
-            chunks = TextProcessor.split_text(
-                text, chunk_size=chunk_size, overlap=chunk_overlap
-            )
-            builder.validate_batch_chunks(chunks, batch_size=350)
-            total_chunks = len(chunks)
+            scopes = []
+            if text:
+                scopes.append(("personal", text, "graph_id", 10, 50))
+            if literary_text:
+                scopes.append(("literary", literary_text, "literary_graph_id", 52, 88))
 
-            task_manager.update_task(
-                task_id, message=f"创建 Zep 图谱", progress=10
-            )
+            graph_ids = {}
+            total_chunks = 0
+            for scope_name, scope_text, graph_attr, start_progress, end_progress in scopes:
+                if task_manager.is_cancelled(task_id):
+                    return
+                chunks = TextProcessor.split_text(scope_text, chunk_size=chunk_size, overlap=chunk_overlap)
+                scope_entries = literary_entries if scope_name == "literary" else personal_entries
+                chunk_metadata = _chunk_provenance(chunks, scope_entries)
+                builder.validate_batch_chunks(chunks, batch_size=350)
+                total_chunks += len(chunks)
+                task_manager.update_task(task_id, message=f"创建 {scope_name} Zep 图谱", progress=start_progress)
 
-            def remember_graph(graph_id):
-                project.graph_id = graph_id
-                ProjectManager.save_project(project)
+                def remember_graph(graph_id, attr=graph_attr):
+                    setattr(project, attr, graph_id)
+                    ProjectManager.save_project(project)
 
-            graph_id = builder.create_graph(
-                name=f"{project.name} Graph",
-                graph_id_callback=remember_graph,
-            )
+                graph_id = builder.create_graph(name=f"{project.name} {scope_name} Graph", graph_id_callback=remember_graph)
+                graph_ids[scope_name] = graph_id
+                task_manager.update_task(task_id, message=f"设置{scope_name}本体", progress=start_progress + 5)
+                builder.set_ontology(graph_id, ontology)
 
-            task_manager.update_task(task_id, message="设置个人本体", progress=15)
-            builder.set_ontology(graph_id, ontology)
+                def add_progress_callback(msg, progress_ratio, base=start_progress, end=end_progress):
+                    task_manager.update_task(
+                        task_id, message=msg,
+                        progress=min(end - 12, base + 8 + int(progress_ratio * max(1, end - base - 20))),
+                    )
 
-            def add_progress_callback(msg, progress_ratio):
-                task_manager.update_task(
-                    task_id, message=msg, progress=15 + int(progress_ratio * 40)
+                def remember_batch(batch_id, operation_id):
+                    project.zep_batch_id = batch_id
+                    project.zep_batch_operation_id = operation_id
+                    ProjectManager.save_project(project)
+
+                task_manager.update_task(task_id, message=f"分块写入{scope_name}资料（{len(chunks)} 块）", progress=start_progress + 8)
+                submission = builder.add_text_batches(
+                    graph_id, chunks, batch_size=350,
+                    progress_callback=add_progress_callback,
+                    batch_created_callback=remember_batch,
+                    scope=scope_name,
+                    chunk_metadata=chunk_metadata,
                 )
 
-            def remember_batch(batch_id, operation_id):
-                project.zep_batch_id = batch_id
-                project.zep_batch_operation_id = operation_id
-                ProjectManager.save_project(project)
+                def wait_progress_callback(msg, progress_ratio, base=start_progress, end=end_progress):
+                    task_manager.update_task(
+                        task_id, message=msg,
+                        progress=min(end - 2, base + 20 + int(progress_ratio * max(1, end - base - 25))),
+                    )
 
-            task_manager.update_task(
-                task_id,
-                message=f"分块写入资料（{total_chunks} 块）",
-                progress=15,
-            )
-            submission = builder.add_text_batches(
-                graph_id,
-                chunks,
-                batch_size=350,
-                progress_callback=add_progress_callback,
-                batch_created_callback=remember_batch,
-            )
+                task_manager.update_task(task_id, message=f"等待 {scope_name} Zep 处理完成", progress=end_progress - 10)
+                builder._wait_for_batch(submission, wait_progress_callback)
 
-            task_manager.update_task(
-                task_id, message="等待 Zep 处理完成", progress=55
-            )
-
-            def wait_progress_callback(msg, progress_ratio):
-                task_manager.update_task(
-                    task_id, message=msg, progress=55 + int(progress_ratio * 35)
-                )
-
-            builder._wait_for_batch(submission, wait_progress_callback)
-
-            task_manager.update_task(
-                task_id, message="获取图谱数据", progress=95
-            )
-            graph_data = builder.get_graph_data(graph_id)
+            task_manager.update_task(task_id, message="获取图谱数据", progress=95)
+            if task_manager.is_cancelled(task_id):
+                return
+            primary_graph = graph_ids.get("personal") or graph_ids.get("literary")
+            graph_data = builder.get_graph_data(primary_graph)
 
             project.status = ProjectStatus.GRAPH_COMPLETED
             project.error = None
@@ -503,7 +604,8 @@ def build_profile_graph():
                 progress=100,
                 result={
                     "project_id": project_id,
-                    "graph_id": graph_id,
+                    "graph_id": graph_ids.get("personal"),
+                    "literary_graph_id": graph_ids.get("literary"),
                     "node_count": graph_data.get("node_count", 0),
                     "edge_count": graph_data.get("edge_count", 0),
                     "chunk_count": total_chunks,
@@ -515,6 +617,8 @@ def build_profile_graph():
             )
 
         except Exception as e:
+            if task_manager.is_cancelled(task_id):
+                return
             build_logger.error(f"[{task_id}] 个人图谱构建失败: {e}")
             build_logger.debug(traceback.format_exc())
             project.status = ProjectStatus.FAILED
@@ -574,25 +678,31 @@ def generate_personal_model():
     if error:
         return error
 
-    if not project.graph_id:
+    scope = str(data.get('scope') or 'personal').lower()
+    if scope not in {'personal', 'literary'}:
+        return jsonify({"success": False, "error": "scope must be personal or literary"}), 400
+    selected_graph = project.graph_id if scope == 'personal' else project.literary_graph_id
+    if not selected_graph:
         return jsonify({
             "success": False,
-            "error": "图谱尚未构建，请先调用 /api/profile/build"
+            "error": "对应 scope 图谱尚未构建，请先调用 /api/profile/build"
         }), 400
 
     task_manager = TaskManager()
-    task_id = task_manager.create_task(f"画像合成: {project.name}")
+    task_id = task_manager.create_task(f"{'文学分析' if scope == 'literary' else '画像合成'}: {project.name}")
     logger.info(f"启动画像合成: project={project_id}, task={task_id}")
 
-    graph_id = project.graph_id
-    manifest = _load_manifest(project_id)
-    next_version = PersonalModelStore.next_version(project_id)
+    graph_id = selected_graph
+    manifest = [m for m in _load_manifest(project_id) if (m.get("material_mode", "personal") == "fictional") == (scope == 'literary')]
+    next_version = 1 if scope == 'literary' else PersonalModelStore.next_version(project_id)
     current_locale = get_locale()
 
     def generate_task():
         set_locale(current_locale)
         gen_logger = get_logger('prism.profile.generate')
         try:
+            if task_manager.is_cancelled(task_id):
+                return
             task_manager.update_task(
                 task_id,
                 status=TaskStatus.PROCESSING,
@@ -615,19 +725,30 @@ def generate_personal_model():
                 project_id=project_id,
                 previous_version=next_version - 1,
                 progress_callback=progress_callback,
-                raw_text=ProjectManager.get_extracted_text(project_id),
+                raw_text=merge_materials([
+                    m.get("normalized_text", "") for m in manifest
+                    if m.get("material_mode", "personal") == ("fictional" if scope == "literary" else "personal") and m.get("normalized_text")
+                ]),
+                goals=[goal for m in manifest for goal in (m.get("goals") or [])],
             )
-            PersonalModelStore.save(project_id, model)
+            if task_manager.is_cancelled(task_id):
+                return
+            model["analysis_scope"] = scope
+            if scope == 'literary':
+                _save_literary_analysis(project_id, model)
+            else:
+                PersonalModelStore.save(project_id, model)
 
             task_manager.update_task(
                 task_id,
                 status=TaskStatus.COMPLETED,
-                message="个人模型合成完成",
+                message="文学分析完成" if scope == 'literary' else "个人模型合成完成",
                 progress=100,
                 progress_detail={"stage": "done"},
                 result={
                     "project_id": project_id,
                     "model_version": model["model_version"],
+                    "analysis_scope": scope,
                     "content_hash": model["content_hash"],
                     "entity_count": model["entity_count"],
                 },
@@ -638,6 +759,8 @@ def generate_personal_model():
             )
 
         except Exception as e:
+            if task_manager.is_cancelled(task_id):
+                return
             gen_logger.error(f"[{task_id}] 画像合成失败: {e}")
             gen_logger.debug(traceback.format_exc())
             task_manager.update_task(
@@ -669,6 +792,21 @@ def get_generate_status(task_id: str):
             "error": t('api.taskNotFound', id=task_id)
         }), 404
     return jsonify({"success": True, "data": task.to_dict()})
+
+
+@profile_bp.route('/literary-analysis/<project_id>', methods=['GET'])
+def get_literary_analysis(project_id: str):
+    project, error = _get_profile_project(project_id)
+    if error:
+        return error
+    path = _literary_analysis_path(project_id)
+    if not os.path.exists(path):
+        return jsonify({"success": False, "error": "文学分析尚未生成，请调用 /api/profile/model/generate 并传 scope=literary"}), 404
+    try:
+        with open(path, 'r', encoding='utf-8') as f:
+            return jsonify({"success": True, "data": json.load(f)})
+    except (OSError, json.JSONDecodeError):
+        return jsonify({"success": False, "error": "文学分析文件损坏"}), 500
 
 
 @profile_bp.route('/model/<project_id>', methods=['GET'])

@@ -10,9 +10,9 @@
 设计文档见 docs/PERSONAL_PROFILE_DESIGN.md 第五节。
 """
 
-import hashlib
 import json
 import time
+import hashlib
 from datetime import datetime
 from typing import Any, Dict, List, Optional
 
@@ -147,13 +147,112 @@ def _stage1_context(
     )
 
 
+def _evidence_context(manifest: List[Dict[str, Any]], limit: int = 9000) -> str:
+    """Expose a bounded, addressable local evidence index to the model."""
+    lines: List[str] = []
+    used = 0
+    for material in manifest or []:
+        material_id = material.get("material_id") or "?"
+        for chunk in material.get("chunks") or []:
+            text = " ".join(str(chunk.get("text") or "").split())
+            if not text:
+                continue
+            line = f"- material_id={material_id} chunk_id={chunk.get('chunk_id')} text={text}"
+            if used + len(line) > limit:
+                return "\n".join(lines) or "（证据索引为空）"
+            lines.append(line)
+            used += len(line)
+    return "\n".join(lines) or "（证据索引为空）"
+
+
+def _quote_span(chunk_text: str, quote: Any) -> Optional[Dict[str, int]]:
+    """Find a conservative span for a model-provided quote."""
+    quote_text = str(quote or "").strip()
+    if len(quote_text) < 4:
+        return None
+    direct = chunk_text.find(quote_text)
+    if direct >= 0:
+        return {"start": direct, "end": direct + len(quote_text)}
+    # Compare whitespace-normalized text while retaining original offsets.
+    normalized = " ".join(chunk_text.split())
+    normalized_quote = " ".join(quote_text.split())
+    start = normalized.find(normalized_quote)
+    if start < 0:
+        return None
+    # Rebuild an offset map from normalized characters to the original string.
+    offsets: List[int] = []
+    previous_space = False
+    for index, char in enumerate(chunk_text):
+        if char.isspace():
+            if not previous_space:
+                offsets.append(index)
+            previous_space = True
+        else:
+            offsets.append(index)
+            previous_space = False
+    if start >= len(offsets) or start + len(normalized_quote) - 1 >= len(offsets):
+        return None
+    end_index = offsets[start + len(normalized_quote) - 1] + 1
+    return {"start": offsets[start], "end": end_index}
+
+
+def _backfill_evidence_refs(data: Dict[str, Any], manifest: List[Dict[str, Any]]) -> List[str]:
+    """Fill refs only when a quote can be verified against the local index."""
+    warnings: List[str] = []
+    by_type = {}
+    for material in manifest or []:
+        by_type.setdefault(material.get("material_type", "other"), []).append(material)
+
+    def walk(value: Any) -> None:
+        if isinstance(value, dict):
+            source = value.get("source")
+            if source and source != "inference" and isinstance(source, str):
+                refs = value.get("evidence_refs")
+                if not isinstance(refs, list) or not refs:
+                    # Evidence-bearing fields are deliberately limited to avoid
+                    # treating an LLM paraphrase as a source citation.
+                    quotes = [value.get(key) for key in ("quote", "evidence", "example")]
+                    candidates = by_type.get(source, [])
+                    for quote in quotes:
+                        if not isinstance(quote, str):
+                            continue
+                        found = []
+                        for material in candidates:
+                            for chunk in material.get("chunks") or []:
+                                span = _quote_span(str(chunk.get("text") or ""), quote)
+                                if span:
+                                    found.append((material, chunk, span, quote))
+                        if len(found) == 1:
+                            material, chunk, span, matched_quote = found[0]
+                            value["evidence_refs"] = [{
+                                "material_id": material.get("material_id"),
+                                "chunk_id": chunk.get("chunk_id"),
+                                "span": span,
+                                "quote": matched_quote,
+                            }]
+                            break
+                    if not value.get("evidence_refs"):
+                        value["source"] = "inference"
+                        value["traceability"] = "unverified"
+                        warnings.append("missing_evidence_refs")
+            for child in value.values():
+                walk(child)
+        elif isinstance(value, list):
+            for child in value:
+                walk(child)
+
+    walk(data)
+    return sorted(set(warnings))
+
+
 SYSTEM_PROMPT_TEMPLATE = """你是一位资深的用户研究员与心理测量分析师。你将收到一个人的人生资料所构建的知识图谱中提取的实体与事实。请把它们合成为结构化的个人画像分区。
 
 本项目实际存在的材料类型只有：{available_sources}。
 source 只能从上述类型与 "inference" 中选择——标注一个本项目并不存在的材料类型（如表单/简历）是严重错误，宁可选 inference。
 
 铁律：
-1. 每个结论必须标注 source，取值只能是: structured_form / resume / chat_log / diary / reflection / preference / inference
+1. 每个结论必须标注 source，取值只能是: {allowed_sources}
+   source 不是证据凭据：只要不是 inference，必须同时返回 evidence_refs（material_id/chunk_id/span/quote）。
 2. 图谱中没有的信息不要编造；可基于多处证据做温和推断，但必须标 source: "inference"
 3. 用户的自我评价与行为证据是两个维度：自评写入 self_view（如适用），行为证据写入 observed（如适用），不要互相覆盖
 4. 出现矛盾时：按可信度权重裁决主结论（structured_form > resume > chat_log > diary > reflection > preference），但把矛盾原样记入 conflicts 数组
@@ -170,7 +269,8 @@ def _build_system_prompt(manifest: List[Dict[str, Any]]) -> str:
         if m.get("material_type")
     }
     return SYSTEM_PROMPT_TEMPLATE.format(
-        available_sources=" / ".join(sorted(present)) if present else "（未知，禁止猜测来源类型，一律标 inference）"
+        available_sources=" / ".join(sorted(present)) if present else "（未知，禁止猜测来源类型，一律标 inference）",
+        allowed_sources=" / ".join(sorted(present | {"inference"})) if present else "inference",
     )
 
 STAGE1_PROMPT = """请合成以下快照分区，输出 JSON：
@@ -242,6 +342,7 @@ STAGE2_PROMPT = """请合成以下叙事分区，输出紧凑精炼的 JSON：
 - episodic_anchors（Character-LLM 经历剧场）：提取 2-3 个关键经历剧场，具备具体场景、冲突、情绪印记与长远认知影响，精炼表达
 - 长度约束（严禁冗长，每项一两句话）：timeline 最多 4 条；milestones 最多 3 条；relationships 最多 4 位；aspirations 最多 3 条
 - 时间线按时间正序排列；资料空白的时间段用 kind: "gap" 显式标注。字段值缺失时用 null 或空串，不要删除字段。
+- 规范化目标（必须原样保留 goal_id 与 polarity，不得自行翻转）：{canonical_goals}
 
 图谱实体与事实如下：
 
@@ -261,17 +362,53 @@ STAGE3_PROMPT = """基于前两阶段的画像分区，请做综合判断，输�
 {narrative}"""
 
 
-def _validate_sources(data: Dict[str, Any]) -> None:
-    """递归校验并清洗 source 字段值"""
-    if isinstance(data, dict):
-        for key, value in data.items():
-            if key == "source" and isinstance(value, str) and value not in SOURCE_VALUES:
-                data[key] = "inference"
-            else:
-                _validate_sources(value)
-    elif isinstance(data, list):
-        for item in data:
-            _validate_sources(item)
+def _validate_sources(data: Dict[str, Any], manifest: Optional[List[Dict[str, Any]]] = None) -> List[str]:
+    """Validate source labels and evidence references without failing the whole model."""
+    warnings: List[str] = []
+    manifest_map = {m.get("material_id"): m for m in (manifest or [])}
+
+    def walk(value: Any) -> None:
+        if isinstance(value, dict):
+            source = value.get("source")
+            refs = value.get("evidence_refs")
+            if source and source != "inference":
+                if source not in SOURCE_VALUES:
+                    value["source"] = "inference"
+                    warnings.append("invalid_source")
+                elif not isinstance(refs, list) or not refs:
+                    value["source"] = "inference"
+                    value["traceability"] = "unverified"
+                    warnings.append("missing_evidence_refs")
+            if isinstance(refs, list):
+                valid_refs = []
+                for ref in refs:
+                    if not isinstance(ref, dict):
+                        continue
+                    material = manifest_map.get(ref.get("material_id"))
+                    chunk_id = ref.get("chunk_id")
+                    span = ref.get("span") or {}
+                    quote = ref.get("quote")
+                    chunks = {c.get("chunk_id"): c for c in (material or {}).get("chunks", [])}
+                    chunk = chunks.get(chunk_id)
+                    ok = bool(material and chunk and isinstance(span, dict) and
+                              isinstance(span.get("start"), int) and isinstance(span.get("end"), int) and
+                              0 <= span["start"] <= span["end"] <= len(chunk.get("text", "")))
+                    if ok and quote is not None:
+                        actual = chunk["text"][span["start"]:span["end"]]
+                        ok = " ".join(str(actual).split()) == " ".join(str(quote).split())
+                    if ok:
+                        valid_refs.append(ref)
+                    else:
+                        warnings.append("invalid_evidence_ref")
+                value["evidence_refs"] = valid_refs
+            for child in value.values():
+                walk(child)
+        elif isinstance(value, list):
+            for child in value:
+                walk(child)
+
+    walk(data)
+    return sorted(set(warnings))
 
 
 def _extract_conflicts(*stages: Dict[str, Any]) -> List[Dict[str, Any]]:
@@ -299,6 +436,7 @@ class ProfileSynthesizer:
         previous_version: int = 0,
         progress_callback=None,
         raw_text: Optional[str] = None,
+        goals: Optional[List[Dict[str, Any]]] = None,
     ) -> Dict[str, Any]:
         """
         执行三阶段合成，返回完整个人模型字典。
@@ -333,6 +471,7 @@ class ProfileSynthesizer:
 
         # 系统提示词注入本项目实际存在的材料类型（source 标注约束）
         system_prompt = _build_system_prompt(manifest)
+        evidence_context = _evidence_context(manifest)
 
         # 阶段1
         report("snapshot", f"合成快照分区（{len(snapshot_entities)} 个实体）")
@@ -341,8 +480,12 @@ class ProfileSynthesizer:
             messages=[
                 {"role": "system", "content": system_prompt},
                 {"role": "user", "content": STAGE1_PROMPT.format(
-                    context=_stage1_context(
-                        _entities_to_context(snapshot_entities or entities), raw_text,
+                    context=(
+                        _stage1_context(
+                            _entities_to_context(snapshot_entities or entities), raw_text,
+                        )
+                        + "\n\n可引用的证据索引（quote 必须逐字来自 text，并填写 span）：\n"
+                        + evidence_context
                     )
                 )},
             ],
@@ -350,7 +493,8 @@ class ProfileSynthesizer:
             progress_callback=progress_callback,
             stage="snapshot",
         )
-        _validate_sources(stage1)
+        traceability_warnings = _backfill_evidence_refs(stage1, manifest)
+        traceability_warnings.extend(_validate_sources(stage1, manifest))
 
         # 阶段2
         report("narrative", f"合成叙事分区（{len(narrative_entities)} 个实体）")
@@ -359,14 +503,20 @@ class ProfileSynthesizer:
             messages=[
                 {"role": "system", "content": system_prompt},
                 {"role": "user", "content": STAGE2_PROMPT.format(
-                    context=_entities_to_context(narrative_entities or entities)
+                    context=(
+                        _entities_to_context(narrative_entities or entities)
+                        + "\n\n可引用的证据索引（quote 必须逐字来自 text，并填写 span）：\n"
+                        + evidence_context
+                    ),
+                    canonical_goals=json.dumps(goals or [], ensure_ascii=False),
                 )},
             ],
             max_tokens=8192,
             progress_callback=progress_callback,
             stage="narrative",
         )
-        _validate_sources(stage2)
+        traceability_warnings.extend(_backfill_evidence_refs(stage2, manifest))
+        traceability_warnings.extend(_validate_sources(stage2, manifest))
 
         # 阶段3
         report("synthesize", "综合判断")
@@ -389,6 +539,8 @@ class ProfileSynthesizer:
             progress_callback=progress_callback,
             stage="synthesize",
         )
+        traceability_warnings.extend(_backfill_evidence_refs(stage3, manifest))
+        traceability_warnings.extend(_validate_sources(stage3, manifest))
 
         # 合成最终模型
         report("finalize", "汇总个人模型")
@@ -421,6 +573,12 @@ class ProfileSynthesizer:
         model["open_questions"] = stage3.get("open_questions", [])
         model["conflicts"] = _extract_conflicts(stage1, stage2, stage3)
         model["source_coverage"] = _manifest_source_summary(manifest)
+        model["traceability"] = {
+            "schema_version": 2,
+            "warnings": sorted(set(traceability_warnings)),
+            "verified": not traceability_warnings,
+        }
+        model["goals"] = goals or []
 
         report("finalize", f"个人模型 v{model['model_version']} 合成完成")
         return model

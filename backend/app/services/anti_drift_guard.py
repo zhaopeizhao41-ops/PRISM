@@ -74,8 +74,8 @@ class AntiDriftGuard:
         # 2. 亲历记忆与活跃事实锚定
         grounding_score = 80
         for ea in episodic_anchors:
-            event = ea.get("event") or ""
-            core_belief = ea.get("core_belief") or ""
+            event = ea.get("event") or ea.get("scene") or ""
+            core_belief = ea.get("core_belief") or ea.get("cognitive_anchor") or ea.get("core_conflict") or ""
             if event and any(w in text_corpus for w in re.findall(r'[\u4e00-\u9fa5]{2,}', event)[:3]):
                 cited_anchors.append(f"经历回响: {event[:18]}")
                 grounding_score = min(100, grounding_score + 5)
@@ -83,7 +83,7 @@ class AntiDriftGuard:
                 grounding_score = min(100, grounding_score + 3)
 
         for mem in (active_memories or []):
-            statement = mem.get("statement") or ""
+            statement = mem.get("statement") or mem.get("fact") or mem.get("content") or ""
             if statement and any(w in text_corpus for w in re.findall(r'[\u4e00-\u9fa5]{2,}', statement)[:2]):
                 grounding_score = min(100, grounding_score + 3)
 
@@ -91,13 +91,15 @@ class AntiDriftGuard:
         register_score = 90
         basic = personal_model.get("basic_info") or {}
         personality = personal_model.get("personality") or {}
-        tone = basic.get("tone") or personality.get("traits", "")
+        tone = basic.get("tone") or personality.get("traits") or " ".join(
+            str(item.get("trait") or "") for item in (personality.get("self_view") or []) if isinstance(item, dict)
+        )
         if tone and any(t in text_corpus for t in re.findall(r'[\u4e00-\u9fa5]{2,}', str(tone))):
             register_score = min(100, register_score + 5)
 
         # 综合保真度加权分 (0-100)
         fidelity_score = int(defense_score * 0.4 + grounding_score * 0.35 + register_score * 0.25)
-        fidelity_score = max(60, min(99, fidelity_score))
+        fidelity_score = max(0, min(99, fidelity_score))
 
         if fidelity_score >= 85:
             drift_status = "stable"

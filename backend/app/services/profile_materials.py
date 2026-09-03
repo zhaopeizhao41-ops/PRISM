@@ -22,9 +22,12 @@ MATERIAL_CONFIDENCE = {
     "reflection": 0.55,
     "preference": 0.40,
     "other": 0.40,
+    "literary": 0.35,
 }
 
 VALID_MATERIAL_TYPES = set(MATERIAL_CONFIDENCE.keys())
+VALID_MATERIAL_MODES = {"personal", "fictional"}
+MATERIAL_TYPE_ALIASES = {"fictional": "literary", "novel": "literary"}
 
 # 表单分区 → 字段清单（用于归一化渲染，顺序即输出顺序）
 _BASIC_FIELDS = [
@@ -351,6 +354,7 @@ def free_material_to_text(
     text: str,
     material_type: str,
     time_range: Optional[str] = None,
+    material_mode: str = "personal",
 ) -> str:
     """
     自由资料（粘贴文本或文件提取文本）→ 带来源头的文本块。
@@ -359,14 +363,18 @@ def free_material_to_text(
     cleaned = (text or "").strip()
     if not cleaned:
         return ""
+    material_type = MATERIAL_TYPE_ALIASES.get(material_type, material_type)
     if material_type not in VALID_MATERIAL_TYPES:
         material_type = "other"
+    if material_mode not in VALID_MATERIAL_MODES:
+        material_mode = "personal"
 
     # 聊天记录解析增强：附加自动解析摘要（我方发言/场景标签/表达统计）
     if material_type == "chat_log":
         cleaned = enhance_chat_log(cleaned)
 
-    parts = [f"=== [{material_type} | 来源: 用户提交"]
+    mode_part = f" | 模式: {material_mode}" if material_mode == "fictional" else ""
+    parts = [f"=== [{material_type}{mode_part} | 来源: 用户提交"]
     if time_range and time_range.strip():
         parts.append(f" | 时间范围: {time_range.strip()}")
     parts.append(f" | 置信度: {MATERIAL_CONFIDENCE[material_type]}] ===")
@@ -381,6 +389,71 @@ def merge_materials(blocks: List[str]) -> str:
 def material_fingerprint(text: str) -> str:
     """资料指纹（sha256 前 16 位），用于 materials_manifest 去重"""
     return hashlib.sha256((text or "").encode("utf-8")).hexdigest()[:16]
+
+
+def canonicalize_goals(form: Dict[str, Any]) -> List[Dict[str, Any]]:
+    """Convert legacy goal fields into a stable, polarity-preserving contract."""
+    if not isinstance(form, dict):
+        return []
+    goals: List[Dict[str, Any]] = []
+    explicit = form.get("goals")
+    if isinstance(explicit, list):
+        for index, item in enumerate(explicit):
+            if not isinstance(item, dict):
+                continue
+            content = _clean(item.get("content") or item.get("text"))
+            if not content:
+                continue
+            polarity = item.get("polarity")
+            if polarity not in {"want", "want_to_avoid"}:
+                polarity = "unknown"
+            goals.append({
+                "goal_id": str(item.get("goal_id") or f"goal_{index + 1}"),
+                "horizon": _clean(item.get("horizon")) or "short_term",
+                "content": content,
+                "polarity": polarity,
+                "legacy": bool(item.get("legacy")),
+            })
+    legacy_pairs = (
+        ("goal_short_term", "want", "short_term"),
+        ("want_to_avoid", "want_to_avoid", "short_term"),
+    )
+    for key, polarity, horizon in legacy_pairs:
+        content = _clean(form.get(key))
+        if content and not any(g["content"] == content for g in goals):
+            goals.append({
+                "goal_id": f"goal_{len(goals) + 1}",
+                "horizon": horizon,
+                "content": content,
+                "polarity": polarity,
+                "legacy": True,
+            })
+    return goals
+
+
+def build_evidence_index(material_id: str, text: str, chunk_size: int = 500, overlap: int = 50) -> List[Dict[str, Any]]:
+    """Create deterministic, locally verifiable evidence chunks for a material."""
+    cleaned = (text or "").strip()
+    if not cleaned:
+        return []
+    chunk_size = max(1, int(chunk_size))
+    overlap = max(0, min(int(overlap), chunk_size - 1))
+    step = chunk_size - overlap
+    chunks: List[Dict[str, Any]] = []
+    for ordinal, start in enumerate(range(0, len(cleaned), step)):
+        end = min(len(cleaned), start + chunk_size)
+        chunk_text = cleaned[start:end]
+        chunks.append({
+            "chunk_id": f"{material_id}:c{ordinal}",
+            "ordinal": ordinal,
+            "start": start,
+            "end": end,
+            "text": chunk_text,
+            "text_sha256": hashlib.sha256(chunk_text.encode("utf-8")).hexdigest(),
+        })
+        if end >= len(cleaned):
+            break
+    return chunks
 
 
 def count_filled_fields(form: Dict[str, Any]) -> int:

@@ -25,6 +25,10 @@ class TestBuildSystemPrompt:
         prompt = _build_system_prompt([])
         assert "一律标 inference" in prompt
 
+    def test_fictional_literary_source_is_allowed_when_present(self):
+        prompt = _build_system_prompt([{"material_type": "literary", "char_count": 100}])
+        assert "literary / inference" in prompt or "inference / literary" in prompt
+
     def test_iron_rules_preserved(self):
         prompt = _build_system_prompt([{"material_type": "diary", "char_count": 1}])
         for rule in ("只输出一个 JSON", "conflicts 数组", "self_view"):

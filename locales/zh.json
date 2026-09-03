@@ -126,6 +126,9 @@
       "fAvoid": "明确不想要的",
       "phAvoid": "写你真实在意的底线",
       "fMaterialType": "资料类型",
+      "fMaterialMode": "资料模式",
+      "personalMode": "个人资料",
+      "fictionalMode": "文学/虚构资料",
       "fTimeRange": "时间范围（可选）",
       "phTimeRange": "如：2024全年",
       "phPaste": "在此粘贴日记 / 感想 / 聊天记录…",
@@ -181,7 +184,19 @@
       "episodicAnchors": "经历剧场与具象锚点",
       "defenseMechanisms": "心理防御机制与敏感锚点",
       "prideTitle": "骄傲与尊严底线",
-      "traumaTitle": "敏感创伤/羞耻雷区"
+      "traumaTitle": "敏感创伤/羞耻雷区",
+      "literaryTitle": "文学材料分析",
+      "literaryNotice": "此页仅分析虚构人物与文本主题，不会写入个人画像，也不能用于关系人或人生推演。"
+    },
+    "mat": {
+      "structured_form": "量化表单",
+      "resume": "简历",
+      "chat_log": "聊天记录",
+      "diary": "日记",
+      "reflection": "感想随笔",
+      "preference": "偏好清单",
+      "literary": "文学作品",
+      "other": "其他"
     }
   },
   "branch": {

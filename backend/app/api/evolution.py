@@ -175,10 +175,11 @@ def advance_session(session_id: str):
 
     data = request.get_json(silent=True) or {}
     injected_event = (data.get('injected_event') or '').strip() or None
+    request_id = request.headers.get('Idempotency-Key') or data.get('request_id')
 
     try:
         engine = EvolutionEngine()
-        result = engine.advance(session, injected_event=injected_event)
+        result = engine.advance(session, injected_event=injected_event, request_id=request_id)
         EvolutionStore.save(result["session"])
     except ValueError as e:
         return jsonify({"success": False, "error": str(e)}), 400

@@ -7,6 +7,8 @@
 
 import json
 import os
+import threading
+import tempfile
 from datetime import datetime
 from typing import Any, Dict, Optional
 
@@ -14,6 +16,13 @@ from ..models.project import ProjectManager
 from ..utils.logger import get_logger
 
 logger = get_logger('prism.relationship.store')
+_locks: dict[str, threading.RLock] = {}
+_locks_guard = threading.Lock()
+
+
+def _lock(project_id: str) -> threading.RLock:
+    with _locks_guard:
+        return _locks.setdefault(project_id, threading.RLock())
 
 
 class RelationshipAgentStore:
@@ -48,8 +57,17 @@ class RelationshipAgentStore:
 
         payload = dict(data)
         payload["created_at"] = datetime.now().isoformat()
-        with open(current_path, 'w', encoding='utf-8') as f:
-            json.dump(payload, f, ensure_ascii=False, indent=2)
+        with _lock(project_id):
+            fd, tmp = tempfile.mkstemp(prefix=".agents-", suffix=".tmp", dir=agents_dir)
+            try:
+                with os.fdopen(fd, 'w', encoding='utf-8') as f:
+                    json.dump(payload, f, ensure_ascii=False, indent=2)
+                    f.flush()
+                    os.fsync(f.fileno())
+                os.replace(tmp, current_path)
+            finally:
+                if os.path.exists(tmp):
+                    os.unlink(tmp)
 
         logger.info(
             f"保存人格卡集合: project={project_id}, cards={len(payload.get('cards') or [])}"

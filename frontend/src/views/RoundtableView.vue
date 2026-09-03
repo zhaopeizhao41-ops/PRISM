@@ -138,7 +138,7 @@
         <template v-else>
           <header class="page-header">
             <h1 class="page-title">
-              {{ phase === 'running' ? t('roundtable.view.inProgress') : t('roundtable.view.finished') }}
+              {{ dialogRunning ? t('roundtable.view.inProgress') : t('roundtable.view.finished') }}
             </h1>
             <p class="roundtopic">「{{ dialog.topic }}」</p>
           </header>
@@ -234,7 +234,7 @@
             <!-- 进行中指示 -->
             <div v-if="dialog.status === 'running'" class="running-hint">
               <span class="pulse"></span>
-              {{ dialog.transcript.length >= (dialog.participants?.length || 0)
+              {{ dialog.transcript.length >= ((dialog.participants?.length || 0) * (dialog.total_rounds || 1))
                  ? t('roundtable.view.moderating') : t('roundtable.view.waitingSpeech') }}
             </div>
             <div v-else-if="dialog.status === 'failed'" class="error-text">
@@ -481,6 +481,7 @@ const opening = ref(false)
 const setupError = ref('')
 const dialogs = ref([])
 const dialog = ref(null)
+const dialogRunning = computed(() => dialog.value?.status === 'running')
 const deleteDialogTarget = ref(null)
 const deleteDialogBusy = ref(false)
 
@@ -544,6 +545,9 @@ async function doDeleteDialog() {
   }
 }
 let pollTimer = null
+let pollToken = 0
+let pollStartedAt = 0
+let pollAttempts = 0
 
 const openMemoryIndex = ref(null)
 function toggleCoreMemory(i) {
@@ -750,6 +754,7 @@ function sleep(ms) {
 }
 
 function stopPolling() {
+  pollToken += 1
   if (pollTimer) {
     clearTimeout(pollTimer)
     pollTimer = null
@@ -757,23 +762,37 @@ function stopPolling() {
 }
 
 async function pollDialog() {
+  const token = pollToken
+  if (Date.now() - pollStartedAt > 10 * 60 * 1000) {
+    setupError.value = '圆桌任务超过最大等待时间，请刷新查看状态'
+    return
+  }
   try {
     const res = await getRoundtableDialog(dialog.value.dialog_id, props.projectId)
+    if (token !== pollToken) return
     dialog.value = res.data
     if (res.data.status === 'running') {
+      pollAttempts = 0
       pollTimer = setTimeout(pollDialog, 3000)
     }
-  } catch {
-    pollTimer = setTimeout(pollDialog, 5000)
+  } catch (err) {
+    pollAttempts += 1
+    if (pollAttempts <= 5) {
+      pollTimer = setTimeout(pollDialog, Math.min(30000, 2000 * 2 ** pollAttempts))
+    } else {
+      setupError.value = err?.message || '圆桌状态读取失败，请稍后重试'
+    }
   }
 }
 
 async function openDialog(dialogId) {
+  stopPolling()
   const res = await getRoundtableDialog(dialogId, props.projectId)
   dialog.value = res.data
   phase.value = 'dialog' // 数据就绪后再切换，避免空帧渲染
   if (res.data.status === 'running') {
-    stopPolling()
+    pollStartedAt = Date.now()
+    pollAttempts = 0
     pollTimer = setTimeout(pollDialog, 3000)
   }
 }
@@ -787,7 +806,7 @@ async function open() {
       project_id: props.projectId,
       topic: topic.value.trim(),
       total_rounds: selectedRounds.value,
-      session_ids: chosenSessions.value.length ? chosenSessions.value : undefined,
+      session_ids: chosenSessions.value,
       person_refs: chosenPersons.value
     })
     await openDialog(res.data.dialog_id)
@@ -808,7 +827,7 @@ onMounted(async () => {
     universes.value = pRes.data?.universes || []
     related.value = pRes.data?.related || []
     chosenSessions.value = universes.value.map(u => u.session_id)
-    chosenPersons.value = []
+    chosenPersons.value = related.value.map(r => r.person_ref)
     dialogs.value = dRes.data || []
   } catch (e) {
     setupError.value = e?.message || String(e)

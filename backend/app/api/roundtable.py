@@ -9,6 +9,7 @@
 import threading
 import traceback
 import uuid
+import os
 
 from flask import jsonify, request
 
@@ -113,10 +114,15 @@ def open_roundtable():
     engine = RoundtableEngine()
     available = engine.list_participants(project_id)
 
-    chosen_sessions = data.get('session_ids') or [u["session_id"] for u in available["universes"]]
+    raw_sessions = data.get('session_ids')
+    chosen_sessions = [u["session_id"] for u in available["universes"]] if raw_sessions is None else raw_sessions
+    if not isinstance(chosen_sessions, list) or len(set(chosen_sessions)) != len(chosen_sessions):
+        return jsonify({"success": False, "error": "session_ids must be a list without duplicates"}), 400
     chosen_persons = data.get('person_refs')
     if chosen_persons is None:
         chosen_persons = [r["person_ref"] for r in available["related"]]
+    if not isinstance(chosen_persons, list) or len(set(chosen_persons)) != len(chosen_persons):
+        return jsonify({"success": False, "error": "person_refs must be a list without duplicates"}), 400
 
     universe_map = {u["session_id"]: u for u in available["universes"]}
     participants = []
@@ -127,7 +133,7 @@ def open_roundtable():
         participants.append({
             "type": "universe", "session_id": sid, "label": u["label"],
         })
-    # 宇宙已按浅→深排序（list_participants 保证）
+    participants.sort(key=lambda p: (universe_map[p["session_id"]].get("stages_done", 0), p["session_id"]))
 
     cards_data = RelationshipAgentStore.get_current(project_id)
     cards_map = {
@@ -142,6 +148,9 @@ def open_roundtable():
             "type": "related", "person_ref": ref, "label": ref,
             "_card": card,  # 运行时注入，落盘时剥离
         })
+
+    related_order = {r.get("person_ref"): i for i, r in enumerate(available["related"])}
+    related_selected.sort(key=lambda p: related_order.get(p.get("person_ref"), 10**6))
 
     if not participants and not related_selected:
         return jsonify({
@@ -161,6 +170,7 @@ def open_roundtable():
         total_rounds = 2
 
     import time as _time
+    mode = "cross_universe" if len(participants) >= 2 else ("single_universe_reflection" if len(participants) == 1 else "related_perspectives")
     dialog = {
         "dialog_id": f"rt_{uuid.uuid4().hex[:12]}",
         "project_id": project_id,
@@ -169,6 +179,8 @@ def open_roundtable():
         "current_round": 1,
         "status": "running",
         "participants": participants + related_selected,
+        "comparison_mode": mode,
+        "participant_order": [p.get("session_id") or p.get("person_ref") for p in participants + related_selected],
         "transcript": [],
         "moderation": None,
         "created_at": _time.strftime("%Y-%m-%dT%H:%M:%S"),
@@ -176,7 +188,12 @@ def open_roundtable():
     RoundtableStore.save(dialog)
 
     task_manager = TaskManager()
-    task_id = task_manager.create_task(f"圆桌: {topic[:30]}")
+    task_id = task_manager.create_task(
+        f"圆桌: {topic[:30]}",
+        metadata={"project_id": project_id, "dialog_id": dialog["dialog_id"], "kind": "roundtable"},
+    )
+    dialog["task_id"] = task_id
+    RoundtableStore.save(dialog)
     logger.info(
         f"召开圆桌: project={project_id}, dialog={dialog['dialog_id']}, "
         f"universes={len(participants)}, related={len(related_selected)}, total_rounds={total_rounds}"
@@ -188,12 +205,19 @@ def open_roundtable():
         set_locale(current_locale)
         rt_logger = get_logger('prism.roundtable.run')
         try:
+            if task_manager.is_cancelled(task_id):
+                dialog["status"] = "failed"
+                dialog["error"] = "圆桌任务已取消"
+                RoundtableStore.save(dialog)
+                return
             task_manager.update_task(
                 task_id, status=TaskStatus.PROCESSING,
                 message="圆桌发言进行中", progress=10,
             )
 
             def progress_callback(stage, speech):
+                if task_manager.is_cancelled(task_id):
+                    raise RuntimeError("圆桌任务已取消")
                 if stage == "speech" and speech:
                     RoundtableStore.save(dialog)
                     done = len(dialog.get("transcript") or [])
@@ -213,6 +237,12 @@ def open_roundtable():
 
             engine = RoundtableEngine()
             engine.run_roundtable(dialog, model, progress_callback=progress_callback)
+
+            if task_manager.is_cancelled(task_id):
+                dialog["status"] = "failed"
+                dialog["error"] = "圆桌任务已取消"
+                RoundtableStore.save(dialog)
+                return
 
             dialog["status"] = "completed"
             RoundtableStore.save(dialog)
@@ -254,6 +284,12 @@ def get_dialog(dialog_id: str):
             return error
     if not dialog:
         return jsonify({"success": False, "error": f"圆桌记录不存在: {dialog_id}"}), 404
+    if dialog.get("status") == "running" and dialog.get("task_id"):
+        task = TaskManager().get_task(dialog["task_id"])
+        if task and task.status in {TaskStatus.STALE, TaskStatus.FAILED, TaskStatus.CANCELLED}:
+            dialog["status"] = "failed"
+            dialog["error"] = task.error or task.message or "圆桌任务已失效"
+            RoundtableStore.save(dialog)
     return jsonify({"success": True, "data": dialog})
 
 
@@ -279,6 +315,8 @@ def interject_speech(dialog_id: str):
 
     if not speaker_ref or not question:
         return jsonify({"success": False, "error": "speaker_ref and question are required"}), 400
+    if len(question) > 2000:
+        return jsonify({"success": False, "error": "question too long"}), 400
 
     if project_id:
         dialog = RoundtableStore.get(project_id, dialog_id)
@@ -288,6 +326,14 @@ def interject_speech(dialog_id: str):
             return error
     if not dialog:
         return jsonify({"success": False, "error": f"圆桌记录不存在: {dialog_id}"}), 404
+    if dialog.get("status") != "completed":
+        return jsonify({"success": False, "error": "圆桌完成后才能插话"}), 409
+    valid_refs = {
+        p.get("session_id") or p.get("person_ref")
+        for p in dialog.get("participants", [])
+    }
+    if speaker_ref not in valid_refs:
+        return jsonify({"success": False, "error": "speaker_ref 不是本圆桌参与者"}), 400
 
     project_id = dialog["project_id"]
     model_data = PersonalModelStore.get_current(project_id)
@@ -318,6 +364,9 @@ def delete_dialog(dialog_id: str):
                     break
     if not project_id:
         return jsonify({"success": False, "error": "project_id not found"}), 404
+    existing = RoundtableStore.get(project_id, dialog_id)
+    if existing and existing.get("status") == "running":
+        return jsonify({"success": False, "error": "运行中的圆桌不能删除"}), 409
     success = RoundtableStore.delete(project_id, dialog_id)
     if not success:
         return jsonify({"success": False, "error": f"Failed to delete roundtable {dialog_id}"}), 400

@@ -125,6 +125,7 @@ STEP2_PROMPT = """基于以下个人画像与已确定的分支方向，展开�
 - fit_score: 0-100 的适配度打分（画像证据对此分支的支持程度）
 - fit_rationale: 打分理由（必须引用画像中的具体证据）
 - key_assumption: 这个分支成立的最关键假设（一句话，之后可用推演器验证）
+- goal_refs: 直接支撑该分支的 goal_id 列表；polarity 必须与画像保持一致
 - ending_state: 若走完此分支，此人的 ending_state（一段话）
 
 输出 JSON：
@@ -141,6 +142,8 @@ STEP2_PROMPT = """基于以下个人画像与已确定的分支方向，展开�
   "fit_score": 0,
   "fit_rationale": "",
   "key_assumption": "",
+  "goal_refs": [],
+  "dominant_goal_polarity": "want|want_to_avoid|mixed|unknown",
   "ending_state": ""
 }}
 
@@ -183,6 +186,7 @@ class BranchGenerator:
                 "basic_info", "personality", "values", "skills", "interests",
                 "timeline", "milestones", "relationships", "emotional_patterns",
                 "aspirations", "current_state", "conflicts",
+                "goals",
             )
         }
         model_json = json.dumps(model_slim, ensure_ascii=False)
@@ -235,6 +239,15 @@ class BranchGenerator:
             branch.setdefault("archetype", archetype)
             branch.setdefault("positioning", direction.get("positioning", ""))
             branch["rationale"] = direction.get("rationale", "")
+            valid_goals = {g.get("goal_id"): g for g in (personal_model.get("goals") or []) if isinstance(g, dict) and g.get("goal_id")}
+            refs = [r for r in (branch.get("goal_refs") or []) if r in valid_goals]
+            if not refs:
+                wants = [g for g in valid_goals.values() if g.get("polarity") == "want"]
+                if wants:
+                    refs = [wants[0]["goal_id"]]
+            branch["goal_refs"] = refs
+            polarities = {valid_goals[r].get("polarity") for r in refs if r in valid_goals}
+            branch["dominant_goal_polarity"] = next(iter(polarities)) if len(polarities) == 1 else ("mixed" if polarities else "unknown")
             report("expand", f"分支（{archetype}）展开完成")
             return idx, branch
 

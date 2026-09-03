@@ -412,6 +412,8 @@ class GraphBuilderService:
         batch_size: int = 350,
         progress_callback: Optional[Callable] = None,
         batch_created_callback: Optional[Callable[[str | None, str], None]] = None,
+        scope: str = "personal",
+        chunk_metadata: Optional[List[Dict[str, Any]]] = None,
     ) -> BatchSubmission:
         """Submit document chunks through Zep's current Batch API.
 
@@ -424,6 +426,8 @@ class GraphBuilderService:
         if not graph_id:
             raise ValueError("graph_id is required")
         self.validate_batch_chunks(chunks, batch_size=batch_size)
+        if chunk_metadata is not None and len(chunk_metadata) != len(chunks):
+            raise ValueError("chunk_metadata must align one-to-one with chunks")
 
         total_chunks = len(chunks)
         operation_id = self.build_operation_id(graph_id, chunks)
@@ -481,6 +485,8 @@ class GraphBuilderService:
                         "chunk_sha256": hashlib.sha256(
                             chunk.encode("utf-8")
                         ).hexdigest(),
+                        "scope": scope,
+                        **(chunk_metadata[i + offset] if chunk_metadata else {}),
                     },
                 )
                 for offset, chunk in enumerate(batch_chunks)

@@ -176,7 +176,7 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted } from 'vue'
+import { ref, computed, onMounted, onUnmounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import AppHeader from '../components/AppHeader.vue'
@@ -199,6 +199,7 @@ const genProgress = ref(0)
 const genMessage = ref('')
 const evolving = ref(false)
 const sessions = ref([])
+let generationToken = 0
 
 function statusLabel(key) {
   const i18nKey = `evolution.status.${key}`
@@ -252,22 +253,35 @@ function sleep(ms) {
 }
 
 async function startGenerate() {
+  const token = ++generationToken
   generating.value = true
   genProgress.value = 5
   genMessage.value = t('branch.view.genStarting')
   try {
     const res = await generateBranches({ project_id: props.projectId })
-    for (;;) {
+    const deadline = Date.now() + 15 * 60 * 1000
+    let failures = 0
+    while (Date.now() < deadline) {
       await sleep(3000)
-      const statusRes = await getBranchGenerateStatus(res.data.task_id)
-      const task = statusRes.data
-      genProgress.value = task.progress || 0
-      genMessage.value = task.message || ''
-      if (task.status === 'completed') break
-      if (task.status === 'failed') {
-        throw new Error(task.message || task.error || 'task failed')
+      if (token !== generationToken) return
+      try {
+        const statusRes = await getBranchGenerateStatus(res.data.task_id)
+        failures = 0
+        const task = statusRes.data
+        genProgress.value = task.progress || 0
+        genMessage.value = task.message || ''
+        if (task.status === 'completed') break
+        if (['failed', 'cancelled', 'stale'].includes(task.status)) {
+          throw new Error(task.message || task.error || 'task failed')
+        }
+      } catch (error) {
+        failures += 1
+        if (failures >= 5) throw error
+        await sleep(Math.min(30000, 1000 * 2 ** failures))
       }
     }
+    if (Date.now() >= deadline) throw new Error('任务超过最大等待时间，请刷新查看状态')
+    if (token !== generationToken) return
     const dataRes = await getBranches(props.projectId)
     branchesData.value = dataRes.data
     activeIndex.value = 0
@@ -275,7 +289,7 @@ async function startGenerate() {
     loadError.value = e?.message || String(e)
     genMessage.value = loadError.value
   } finally {
-    generating.value = false
+    if (token === generationToken) generating.value = false
   }
 }
 
@@ -287,8 +301,13 @@ onMounted(async () => {
     // 404 = 尚未生成，页面会显示生成按钮
     loadError.value = ''
   } finally {
+    await loadSessions()
     loading.value = false
   }
+})
+
+onUnmounted(() => {
+  generationToken += 1
 })
 </script>
 

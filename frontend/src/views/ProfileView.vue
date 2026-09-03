@@ -1,9 +1,10 @@
 <template>
   <div class="profile-view">
     <!-- 顶部统一导航 -->
-    <AppHeader :project-id="projectId" current-step="profile">
+    <AppHeader :project-id="isLiterary ? '' : projectId" current-step="profile">
       <template #extra>
         <span v-if="model" class="nav-badge">v{{ model.model_version }}</span>
+        <span v-if="model?.traceability?.warnings?.length" class="nav-warning">证据待核验</span>
       </template>
     </AppHeader>
 
@@ -20,6 +21,10 @@
       </div>
 
       <template v-else>
+        <section v-if="isLiterary" class="scope-banner literary-banner" role="status">
+          <strong>{{ t('profile.view.literaryTitle') }}</strong>
+          <span>{{ t('profile.view.literaryNotice') }}</span>
+        </section>
         <!-- 卡片1：核心画像 -->
         <section class="profile-card core-card">
           <div class="card-label">{{ t('profile.view.coreTitle') }}</div>
@@ -197,7 +202,7 @@
         </section>
 
         <!-- 卡片4：关系人 Agent -->
-        <section class="profile-card agents-card">
+        <section v-if="!isLiterary" class="profile-card agents-card">
           <div class="card-label">{{ t('relationship.title') }}</div>
 
           <!-- 已生成的人格卡 -->
@@ -352,7 +357,7 @@
         </section>
 
         <!-- 底部操作 -->
-        <div class="action-bar">
+        <div v-if="!isLiterary" class="action-bar">
           <button class="branches-btn" type="button" @click="router.push(`/branches/${projectId}`)">
             {{ t('branch.view.entry') }} →
           </button>
@@ -367,10 +372,10 @@
 
 <script setup>
 import { ref, computed, onMounted } from 'vue'
-import { useRouter } from 'vue-router'
+import { useRouter, useRoute } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import AppHeader from '../components/AppHeader.vue'
-import { getPersonalModel } from '../api/profile'
+import { getPersonalModel, getLiteraryAnalysis } from '../api/profile'
 import {
   getRelationshipCandidates,
   generateRelationshipAgents,
@@ -386,6 +391,7 @@ const props = defineProps({
 })
 
 const router = useRouter()
+const route = useRoute()
 const { t, te } = useI18n()
 
 const loading = ref(true)
@@ -393,6 +399,7 @@ const loadError = ref('')
 const model = ref(null)
 const versions = ref([])
 const detailsOpen = ref(false)
+const isLiterary = computed(() => route.query.scope === 'literary')
 
 // ----- 关系人 Agent -----
 const agentCards = ref([])
@@ -540,16 +547,26 @@ async function generateAgents() {
       project_id: props.projectId,
       person_refs: selectedSet.value
     })
-    for (;;) {
+    const deadline = Date.now() + 15 * 60 * 1000
+    let failures = 0
+    while (Date.now() < deadline) {
       await sleep(3000)
-      const statusRes = await getRelationshipGenerateStatus(res.data.task_id)
-      const task = statusRes.data
-      genMessage.value = task.message || ''
-      if (task.status === 'completed') break
-      if (task.status === 'failed') {
-        throw new Error(task.message || task.error || 'task failed')
+      try {
+        const statusRes = await getRelationshipGenerateStatus(res.data.task_id)
+        failures = 0
+        const task = statusRes.data
+        genMessage.value = task.message || ''
+        if (task.status === 'completed') break
+        if (['failed', 'cancelled', 'stale'].includes(task.status)) {
+          throw new Error(task.message || task.error || 'task failed')
+        }
+      } catch (err) {
+        failures += 1
+        if (failures >= 5) throw err
+        await sleep(Math.min(30000, 1000 * 2 ** failures))
       }
     }
+    if (Date.now() >= deadline) throw new Error('任务超过最大等待时间')
     await loadExistingCards()
     showCandidatePanel.value = false
   } catch (e) {
@@ -613,10 +630,12 @@ function formatDate(iso) {
 
 onMounted(async () => {
   try {
-    const res = await getPersonalModel(props.projectId)
+    const res = isLiterary.value
+      ? { data: { model: (await getLiteraryAnalysis(props.projectId)).data, versions: [] } }
+      : await getPersonalModel(props.projectId)
     model.value = res.data.model
     versions.value = res.data.versions || []
-    await loadExistingCards()
+    if (!isLiterary.value) await loadExistingCards()
   } catch (e) {
     loadError.value = e?.message || String(e)
   } finally {
@@ -697,6 +716,24 @@ onMounted(async () => {
   max-width: 720px;
   margin: 0 auto;
   padding: 40px 24px 96px;
+}
+
+.scope-banner {
+  display: flex;
+  gap: 12px;
+  align-items: baseline;
+  margin-bottom: 20px;
+  padding: 14px 18px;
+  border-left: 3px solid var(--c-brand);
+  background: var(--c-brand-tint, #f6f1e8);
+  color: var(--c-ink-2);
+  font-size: 13px;
+  line-height: 1.6;
+}
+
+.scope-banner strong {
+  color: var(--c-brand-deep, var(--c-brand));
+  white-space: nowrap;
 }
 
 .state-box {

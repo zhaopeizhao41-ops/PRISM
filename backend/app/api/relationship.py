@@ -94,11 +94,17 @@ def generate_cards():
     """
     data = request.get_json(silent=True) or {}
     project_id = data.get('project_id')
-    person_refs = data.get('person_refs') or []
+    person_refs = data.get('person_refs')
+    if person_refs is None:
+        person_refs = []
     if not project_id:
         return jsonify({"success": False, "error": "project_id is required"}), 400
     if not person_refs or not isinstance(person_refs, list):
         return jsonify({"success": False, "error": "person_refs 不能为空"}), 400
+    person_refs = list(dict.fromkeys(str(p).strip() for p in person_refs if str(p).strip()))
+    if not person_refs or len(person_refs) > 8:
+        return jsonify({"success": False, "error": "person_refs 数量必须为 1-8"}), 400
+    allow_mediated = bool(data.get("allow_mediated", False))
 
     project, error = _get_profile_project(project_id)
     if error:
@@ -121,6 +127,8 @@ def generate_cards():
         set_locale(current_locale)
         gen_logger = get_logger('prism.relationship.generate')
         try:
+            if task_manager.is_cancelled(task_id):
+                return
             task_manager.update_task(
                 task_id,
                 status=TaskStatus.PROCESSING,
@@ -129,6 +137,8 @@ def generate_cards():
             )
 
             def progress_callback(stage, message, done, total):
+                if task_manager.is_cancelled(task_id):
+                    raise RuntimeError("任务已取消")
                 task_manager.update_task(
                     task_id,
                     message=message,
@@ -141,7 +151,10 @@ def generate_cards():
                 personal_model=model,
                 selected_names=person_refs,
                 progress_callback=progress_callback,
+                allow_mediated=allow_mediated,
             )
+            if task_manager.is_cancelled(task_id):
+                return
 
             payload = {
                 "cards": cards,

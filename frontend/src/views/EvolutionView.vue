@@ -130,6 +130,7 @@
             >
               <span class="option-label">{{ opt.label }}</span>
               <span class="option-condition">{{ opt.condition }}</span>
+              <span v-if="opt.effects" class="option-effects">账本变化：{{ formatEffects(opt.effects) }}</span>
             </button>
           </div>
         </div>
@@ -364,6 +365,20 @@ const advancing = ref(false)
 const advanceError = ref('')
 const eventInput = ref('')
 const forkGate = ref(null) // advance 返回的待裁决分叉
+
+function formatEffects(effects) {
+  const parts = []
+  for (const [key, value] of Object.entries(effects || {})) {
+    if (value && typeof value === 'object') {
+      for (const [field, delta] of Object.entries(value)) {
+        if (field.endsWith('_delta')) parts.push(`${field.replace('_delta', '')}${delta >= 0 ? '+' : ''}${delta}`)
+      }
+    } else if (typeof value === 'number') {
+      parts.push(`${key}${value >= 0 ? '+' : ''}${value}`)
+    }
+  }
+  return parts.join(' / ')
+}
 
 const dims = [
   { key: 'career' }, { key: 'family' },

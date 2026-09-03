@@ -8,12 +8,22 @@
 import json
 import os
 import uuid
+import threading
+import tempfile
 from typing import Any, Dict, List, Optional
 
 from ..models.project import ProjectManager
 from ..utils.logger import get_logger
 
 logger = get_logger('prism.roundtable.store')
+_locks: dict[str, threading.RLock] = {}
+_locks_guard = threading.Lock()
+
+
+def _lock(project_id: str, dialog_id: str) -> threading.RLock:
+    key = f"{project_id}:{dialog_id}"
+    with _locks_guard:
+        return _locks.setdefault(key, threading.RLock())
 
 
 class RoundtableStore:
@@ -43,8 +53,20 @@ class RoundtableStore:
                 k: v for k, v in p.items() if not k.startswith("_")
             })
         payload["participants"] = clean_participants
-        with open(cls._path(project_id, dialog["dialog_id"]), 'w', encoding='utf-8') as f:
-            json.dump(payload, f, ensure_ascii=False, indent=2)
+        payload.setdefault("schema_version", 2)
+        payload["revision"] = int(payload.get("revision", 0)) + 1
+        path = cls._path(project_id, dialog["dialog_id"])
+        with _lock(project_id, dialog["dialog_id"]):
+            fd, tmp = tempfile.mkstemp(prefix=".rt-", suffix=".tmp", dir=cls._dir(project_id))
+            try:
+                with os.fdopen(fd, 'w', encoding='utf-8') as f:
+                    json.dump(payload, f, ensure_ascii=False, indent=2)
+                    f.flush()
+                    os.fsync(f.fileno())
+                os.replace(tmp, path)
+            finally:
+                if os.path.exists(tmp):
+                    os.unlink(tmp)
 
     @classmethod
     def get(cls, project_id: str, dialog_id: str) -> Optional[Dict[str, Any]]:
@@ -52,8 +74,11 @@ class RoundtableStore:
         if not os.path.exists(path):
             return None
         try:
-            with open(path, 'r', encoding='utf-8') as f:
-                return json.load(f)
+            with _lock(project_id, dialog_id), open(path, 'r', encoding='utf-8') as f:
+                dialog = json.load(f)
+            dialog.setdefault("schema_version", 1)
+            dialog.setdefault("revision", 0)
+            return dialog
         except (OSError, json.JSONDecodeError) as e:
             logger.error(f"读取圆桌记录失败: {path}, {e}")
             return None

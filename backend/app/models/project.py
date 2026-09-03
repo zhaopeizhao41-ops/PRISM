@@ -42,6 +42,8 @@ class Project:
     
     # 图谱信息（接口2完成后填充）
     graph_id: Optional[str] = None
+    literary_graph_id: Optional[str] = None
+    profile_scope: Optional[str] = None
     graph_build_task_id: Optional[str] = None
     zep_batch_id: Optional[str] = None
     zep_batch_operation_id: Optional[str] = None
@@ -73,6 +75,8 @@ class Project:
             "ontology": self.ontology,
             "analysis_summary": self.analysis_summary,
             "graph_id": self.graph_id,
+            "literary_graph_id": self.literary_graph_id,
+            "profile_scope": self.profile_scope,
             "graph_build_task_id": self.graph_build_task_id,
             "zep_batch_id": self.zep_batch_id,
             "zep_batch_operation_id": self.zep_batch_operation_id,
@@ -102,6 +106,8 @@ class Project:
             ontology=data.get('ontology'),
             analysis_summary=data.get('analysis_summary'),
             graph_id=data.get('graph_id'),
+            literary_graph_id=data.get('literary_graph_id'),
+            profile_scope=data.get('profile_scope'),
             graph_build_task_id=data.get('graph_build_task_id'),
             zep_batch_id=data.get('zep_batch_id'),
             zep_batch_operation_id=data.get('zep_batch_operation_id'),

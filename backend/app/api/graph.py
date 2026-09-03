@@ -659,6 +659,15 @@ def get_task(task_id: str):
     })
 
 
+@graph_bp.route('/task/<task_id>/cancel', methods=['POST'])
+def cancel_task(task_id: str):
+    """Cancel a pending or processing task at its next safe checkpoint."""
+    task = TaskManager().cancel_task(task_id)
+    if not task:
+        return jsonify({"success": False, "error": t('api.taskNotFound', id=task_id)}), 404
+    return jsonify({"success": True, "data": task.to_dict()})
+
+
 @graph_bp.route('/tasks', methods=['GET'])
 def list_tasks():
     """

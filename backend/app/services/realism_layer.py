@@ -132,11 +132,11 @@ def _pick_event(
 
     # 决定好事 vs 坏事
     bad_ratio = 0.55 if (stress_carryover or 0) < 40 else (0.70 if (stress_carryover or 0) < 70 else 0.82)
-    if (cash_months or 2) <= 1:
+    if cash_months is not None and cash_months <= 1:
         bad_ratio += 0.15  # 现金见底：坏运气更容易雪上加霜
     if (debt_months or 0) >= 2:
         bad_ratio += 0.08
-    if (cash_months or 2) >= 8:
+    if cash_months is not None and cash_months >= 8:
         bad_ratio -= 0.10  # 家底厚：坏运气冲击有限
     bad_ratio = max(0.25, min(0.90, bad_ratio))
     is_bad = rng.random() < bad_ratio
@@ -373,18 +373,28 @@ def init_realism_state(
     parsed_cash = _parse_cash_months(resources_text, basic_texts)
 
     resources_lower = resources_text.lower() + " " + basic_texts.lower()
-    if any(kw in resources_lower for kw in ("负债", "拮据", "啃老", "存款为零", "月光")):
+    finance_known = False
+    if parsed_cash is not None:
+        finance_known = True
+    if any(kw in resources_lower for kw in ("存款为零", "现金为零", "逾期", "多笔债务", "无收入")):
         cash_months, debt_months, income_stability = 0, 2, 1
+        finance_known = True
+    elif any(kw in resources_lower for kw in ("负债", "拮据", "啃老", "月光")):
+        cash_months, debt_months, income_stability = 1, 1, 1
+        finance_known = True
     elif any(kw in resources_lower for kw in ("稳定", "一般", "普通收入")):
         cash_months, debt_months, income_stability = 3, 0, 3
+        finance_known = True
     elif any(kw in resources_lower for kw in ("充裕", "存款", "优渥", "高收入", "中产")):
         cash_months, debt_months, income_stability = 6, 0, 4
+        finance_known = True
     else:
         cash_months, debt_months, income_stability = 2, 0, 2  # 默认：略紧
     if parsed_cash is not None:
         # 材料明确给出"现金流够撑 N 个月"：以材料为准
         cash_months = parsed_cash
         income_stability = max(1, min(5, 2 if parsed_cash <= 3 else 3))
+        finance_known = True
 
     # ---- Health 推断 ----
     age = _parse_age(basic)
@@ -484,6 +494,8 @@ def init_realism_state(
             "cash_months": cash_months,
             "debt_months": debt_months,
             "income_stability": income_stability,  # 1 很不稳定 ~ 5 极稳定
+            "known": finance_known,
+            "source": "observed" if finance_known else "assumed",
         },
         "relationships": relationships,
         "windows": windows,
@@ -491,6 +503,7 @@ def init_realism_state(
         "stress_carryover": stress_seed,
         "career_hold_stages": 0,
         "_current_stage": 1,  # 推进到第几阶段就写几，供窗口/校验判断
+        "breaker_episodes": {},
     }
 
 
@@ -647,19 +660,45 @@ def check_circuit_breakers(
     
     若命中且尚未在该阶段被裁决，直接返回结构化强制分叉对象，拦截推演进行。
     """
-    existing_breaker_keys = {
-        f.get("circuit_breaker")
-        for f in existing_forks
-        if f.get("at_stage") == stage_no and f.get("circuit_breaker")
-    }
+    episodes = realism_state.setdefault("breaker_episodes", {})
+
+    # Hysteresis: an acknowledged episode is closed only after the ledger has
+    # crossed a safer threshold, allowing a later relapse to open a new one.
+    finance_now = realism_state.get("finance_ledger", {})
+    if (episodes.get("insolvency") or {}).get("status") == "acknowledged":
+        if finance_now.get("cash_months", 0) >= 1 and finance_now.get("debt_months", 0) <= 1:
+            episodes["insolvency"]["status"] = "recovered"
+    if (episodes.get("health") or {}).get("status") == "acknowledged":
+        if realism_state.get("health_score", 0) >= 60:
+            episodes["health"]["status"] = "recovered"
+    for key, episode in list(episodes.items()):
+        if not key.startswith("tension_") or episode.get("status") != "acknowledged":
+            continue
+        person = key[len("tension_"):]
+        rel = next((r for r in realism_state.get("relationships", []) if r.get("name") == person), None)
+        if rel and rel.get("tension", 0) <= 50:
+            episode["status"] = "recovered"
+
+    def active(key: str) -> bool:
+        return (episodes.get(key) or {}).get("status") in {"open", "acknowledged"}
+
+    def mark(key: str, fork: Dict[str, Any]) -> Dict[str, Any]:
+        state = episodes.setdefault(key, {})
+        state.setdefault("episode_id", f"br_{key}_{stage_no}")
+        state.setdefault("opened_stage", stage_no)
+        state["last_seen_stage"] = stage_no
+        state["status"] = "open"
+        fork["breaker_key"] = key
+        fork["episode_id"] = state["episode_id"]
+        return fork
 
     # 1. 破产断路器
     finance = realism_state.get("finance_ledger", {})
-    cash_months = finance.get("cash_months", 2)
-    debt_months = finance.get("debt_months", 0)
-    if cash_months <= 0 and debt_months >= 2 and "insolvency" not in existing_breaker_keys:
-        return {
-            "fork_id": f"circuit_insolvency_stage_{stage_no}",
+    cash_months = finance.get("cash_months")
+    debt_months = finance.get("debt_months")
+    if finance.get("known", True) and cash_months is not None and debt_months is not None and cash_months <= 0 and debt_months >= 2 and not active("insolvency"):
+        return mark("insolvency", {
+            "fork_id": f"circuit_insolvency_{stage_no}",
             "at_stage": stage_no,
             "circuit_breaker": "insolvency",
             "is_emergency": True,
@@ -667,21 +706,23 @@ def check_circuit_breakers(
             "options": [
                 {
                     "label": "抵押仅存栖身之所 / 变卖最后随身家当",
-                    "condition": "变卖全部剩余资产勉强冲抵部分旧债，生活条件跌入绝境，但争取到 1-2 个月喘息期"
+                    "condition": "变卖全部剩余资产勉强冲抵部分旧债，生活条件跌入绝境，但争取到 1-2 个月喘息期",
+                    "effects": {"finance": {"cash_months_delta": 1, "debt_months_delta": -1}, "stress_delta": 5}
                 },
                 {
                     "label": "向债主低头屈从 / 接受高息苛刻劳役偿债",
-                    "condition": "向掌柜或放贷方立下严苛字据，心理承压与关系张力飙升至极点，以失去自由为代价维持生计"
+                    "condition": "向掌柜或放贷方立下严苛字据，心理承压与关系张力飙升至极点，以失去自由为代价维持生计",
+                    "effects": {"finance": {"cash_months_delta": 1, "debt_months_delta": -1}, "stress_delta": 15}
                 }
             ],
-            "resolved": None
-        }
+            "resolved": None,
+        })
 
     # 2. 健康崩塌断路器
     health_score = realism_state.get("health_score", 80)
-    if health_score < 40 and "health" not in existing_breaker_keys:
-        return {
-            "fork_id": f"circuit_health_stage_{stage_no}",
+    if health_score < 40 and not active("health"):
+        return mark("health", {
+            "fork_id": f"circuit_health_{stage_no}",
             "at_stage": stage_no,
             "circuit_breaker": "health",
             "is_emergency": True,
@@ -689,23 +730,26 @@ def check_circuit_breakers(
             "options": [
                 {
                     "label": "散尽仅有盘缠彻底停工就医抓药",
-                    "condition": "暂停一切生计彻底卧床休养，资金耗尽甚至不得不举债求医，换取体能逐步脱离危险期"
+                    "condition": "暂停一切生计彻底卧床休养，资金耗尽甚至不得不举债求医，换取体能逐步脱离危险期",
+                    "effects": {"health_delta": 25, "cash_months_delta": -1, "stress_delta": -10}
                 },
                 {
                     "label": "咬紧牙关带病强行出工硬扛",
-                    "condition": "拒绝停工强忍剧痛继续劳作，短期勉强维持微薄进项，但落下严重终身不可逆损伤"
+                    "condition": "拒绝停工强忍剧痛继续劳作，短期勉强维持微薄进项，但落下严重终身不可逆损伤",
+                    "effects": {"health_delta": -10, "cash_months_delta": 1, "stress_delta": 10}
                 }
             ],
-            "resolved": None
-        }
+            "resolved": None,
+        })
 
     # 3. 关系反目断路器
     for rel in realism_state.get("relationships", []):
         tension = rel.get("tension", 0)
         name = rel.get("name", "关键关系人")
-        if tension >= 80 and f"tension_{name}" not in existing_breaker_keys:
-            return {
-                "fork_id": f"circuit_tension_{name}_stage_{stage_no}",
+        key = f"tension_{name}"
+        if tension >= 80 and not active(key):
+            return mark(key, {
+                "fork_id": f"circuit_tension_{name}_{stage_no}",
                 "at_stage": stage_no,
                 "circuit_breaker": f"tension_{name}",
                 "is_emergency": True,
@@ -713,14 +757,16 @@ def check_circuit_breakers(
                 "options": [
                     {
                         "label": f"当面低头服软，全盘接受「{name}」的苛刻要求",
-                        "condition": f"彻底放弃个人原则向「{name}」认错退让，换取关系张力暂时缓和，但自尊与利益受重创"
+                        "condition": f"彻底放弃个人原则向「{name}」认错退让，换取关系张力暂时缓和，但自尊与利益受重创",
+                        "effects": {"relationship": {"person": name, "tension_delta": -35}, "stress_delta": 5}
                     },
                     {
                         "label": f"正面激烈摊牌对质，彻底决裂断交",
-                        "condition": f"与「{name}」公开撕破脸皮决裂，承受其在圈子内的排挤与封杀，人际张力锁定在最高点"
+                        "condition": f"与「{name}」公开撕破脸皮决裂，承受其在圈子内的排挤与封杀，人际张力锁定在最高点",
+                        "effects": {"relationship": {"person": name, "tension_delta": 20, "status": "severed"}, "stress_delta": 10}
                     }
                 ],
-                "resolved": None
-            }
+                "resolved": None,
+            })
 
     return None
