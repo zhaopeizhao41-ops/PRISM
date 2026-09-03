@@ -5,6 +5,7 @@ from app.services.profile_synthesizer import _backfill_evidence_refs
 from app.models.task import TaskManager, TaskStatus
 from app.services.realism_layer import init_realism_state, check_circuit_breakers
 from app.services.evolution_engine import EvolutionEngine
+from app.api.evolution import _comparison_realism
 
 
 def test_fictional_material_is_explicit_and_indexed():
@@ -121,3 +122,38 @@ def test_task_listing_filters_by_project_metadata():
             manager._cancel_events.pop(own_task, None)
             manager._cancel_events.pop(other_task, None)
             manager._persist_locked()
+
+
+def test_comparison_realism_summary_preserves_known_values_and_omits_invalid_values():
+    summary = _comparison_realism({
+        "health_score": 72,
+        "stress_carryover": "not-a-number",
+        "finance": {
+            "cash_months": 3,
+            "debt_months": True,
+            "income_stability": 4,
+            "known": True,
+        },
+        "relationships": [
+            {"name": "母亲", "role": "family", "tension": 64, "last_event": "争执"},
+            "malformed",
+        ],
+        "life_event": {"id": "evt_1", "kind": "illness", "template": ""},
+        "causal_violations": ["constraint one", ""],
+    })
+    assert summary["health_score"] == 72
+    assert summary["stress_carryover"] is None
+    assert summary["finance"] == {
+        "cash_months": 3,
+        "debt_months": None,
+        "income_stability": 4,
+        "known": True,
+    }
+    assert summary["relationships"] == [{
+        "name": "母亲",
+        "role": "family",
+        "tension": 64,
+        "last_event": "争执",
+    }]
+    assert summary["life_event"]["kind"] == "illness"
+    assert summary["causal_violations"] == ["constraint one"]

@@ -186,7 +186,27 @@
       "prideTitle": "Pride & Dignity Boundaries",
       "traumaTitle": "Trauma & Vulnerability Triggers",
       "literaryTitle": "Literary material analysis",
-      "literaryNotice": "This view analyzes fictional characters and themes only. It does not enter your personal profile or enable relationship or life simulation."
+      "literaryNotice": "This view analyzes fictional characters and themes only. It does not enter your personal profile or enable relationship or life simulation.",
+      "evidenceTitle": "Profile evidence chain",
+      "evidenceVerified": "Citations trace back to submitted materials",
+      "evidenceNeedsReview": "Some conclusions need citation review",
+      "evidenceCount": "{n} citations located",
+      "openEvidence": "Open evidence chain",
+      "evidenceField": {
+        "currentState": "Current state",
+        "trait": "Trait",
+        "pattern": "Pattern",
+        "evidence": "Evidence note",
+        "example": "Text example",
+        "summary": "Summary",
+        "content": "Content",
+        "scene": "Scene",
+        "feature": "Expression feature",
+        "anchor": "Anchor",
+        "trigger": "Trigger",
+        "rationale": "Rationale",
+        "influence": "Influence"
+      }
     },
     "mat": {
       "structured_form": "Structured form",
@@ -454,7 +474,41 @@
     "closingText": "These universes may never truly come to pass.\n\nTheir true worth lies in this: when reality's chaos surges once again, and you must make decisions in the darkness of incomplete information—you will not be facing it for the first time. The landscapes and costs along those paths have already been traversed in your mind. The fear will still be there, but it will no longer hold you back.\n\nYou can choose with grace and resolve.",
     "nextDebateTitle": "Next: Bring Divergences into Debate",
     "nextDebateDesc": "Different universes demonstrate contrasting paths and sacrifices. Bring diverse versions of yourself and key relations together at one table to cross-examine real dilemmas.",
-    "goRoundtableBtn": "Start Parallel Roundtable"
+    "goRoundtableBtn": "Start Parallel Roundtable",
+    "metric": {
+      "finance": "Cash & debt",
+      "time": "Time coverage",
+      "health": "Health reserve",
+      "stress": "Stress carryover",
+      "relationships": "Relationship tension",
+      "uncertainty": "Uncertainty",
+      "cash": "Cash",
+      "debt": "Debt",
+      "income": "Income stability",
+      "monthUnit": " mo",
+      "stageUnit": "stages",
+      "unknown": "Not recorded",
+      "unnamed": "Related person",
+      "variableCount": "{n} variables",
+      "assumption": "Assumption",
+      "divergences": "{n} divergences",
+      "lifeEvent": "Life event",
+      "causal": "Causal constraints: {n}"
+    }
+  },
+  "evidence": {
+    "kicker": "Evidence audit",
+    "close": "Close evidence drawer",
+    "loading": "Loading material index…",
+    "summary": "{verified} verifiable citations located.",
+    "summaryWithWarnings": "{verified} citations located; {warnings} need review.",
+    "inference": "Inference",
+    "unknownSource": "Unknown material",
+    "noVerifiedTitle": "No verifiable citations yet",
+    "noVerifiedDescription": "These items may be inferred, or their source material has not been indexed.",
+    "referenceUnavailable": "The source chunk is unavailable in the current material index.",
+    "warningTitle": "Evidence boundary",
+    "warningDescription": "{n} model items did not pass citation validation; they are not treated as confirmed facts."
   },
   "graphView": {
     "emptyGraph": "Graph is empty"

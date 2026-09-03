@@ -280,6 +280,55 @@ def list_sessions(project_id: str):
     return jsonify({"success": True, "data": EvolutionStore.list_sessions(project_id)})
 
 
+def _comparison_realism(snapshot):
+    """Return a safe, read-only realism summary for the comparison matrix."""
+    if not isinstance(snapshot, dict):
+        snapshot = {}
+
+    def number_or_none(value):
+        return value if isinstance(value, (int, float)) and not isinstance(value, bool) else None
+
+    raw_finance = snapshot.get("finance")
+    finance = raw_finance if isinstance(raw_finance, dict) else {}
+    raw_relationships = snapshot.get("relationships")
+    relationships = []
+    for relation in raw_relationships if isinstance(raw_relationships, list) else []:
+        if not isinstance(relation, dict):
+            continue
+        relationships.append({
+            "name": relation.get("name") or "",
+            "role": relation.get("role") or "",
+            "tension": number_or_none(relation.get("tension")),
+            "last_event": relation.get("last_event") or "",
+        })
+
+    life_event = snapshot.get("life_event")
+    if not isinstance(life_event, dict):
+        life_event = None
+
+    violations = snapshot.get("causal_violations")
+    if not isinstance(violations, list):
+        violations = []
+
+    return {
+        "health_score": number_or_none(snapshot.get("health_score")),
+        "stress_carryover": number_or_none(snapshot.get("stress_carryover")),
+        "finance": {
+            "cash_months": number_or_none(finance.get("cash_months")),
+            "debt_months": number_or_none(finance.get("debt_months")),
+            "income_stability": number_or_none(finance.get("income_stability")),
+            "known": finance.get("known") if isinstance(finance.get("known"), bool) else None,
+        },
+        "relationships": relationships,
+        "life_event": {
+            "id": life_event.get("id"),
+            "kind": life_event.get("kind"),
+            "template": life_event.get("template"),
+        } if life_event else None,
+        "causal_violations": [str(item) for item in violations if item],
+    }
+
+
 @evolution_bp.route('/compare/<project_id>', methods=['GET'])
 def compare_sessions(project_id: str):
     """
@@ -305,6 +354,7 @@ def compare_sessions(project_id: str):
             {"question": f.get("question"), "choice": (f.get("resolved") or {}).get("label")}
             for f in session.get("pending_forks") or [] if f.get("resolved")
         ]
+        final_realism = _comparison_realism(final.get("realism"))
         universes.append({
             "session_id": s["session_id"],
             "archetype": s["source_branch_archetype"],
@@ -316,5 +366,12 @@ def compare_sessions(project_id: str):
             "final_snapshot": final.get("state_snapshot") or "",
             "divergences": divergences,
             "resolved_forks": forks,
+            "final_realism": final_realism,
+            "uncertainty": {
+                "key_assumption": session.get("source_branch_assumption") or None,
+                "divergence_count": len(divergences),
+                "causal_violation_count": len(final_realism.get("causal_violations") or []),
+                "life_event": (final_realism.get("life_event") or {}).get("kind"),
+            },
         })
     return jsonify({"success": True, "data": universes})

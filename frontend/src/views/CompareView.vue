@@ -71,6 +71,26 @@
             </div>
           </template>
 
+          <!-- 现实账本与不确定性矩阵 -->
+          <template v-for="metric in realismMetrics" :key="metric.key">
+            <div class="dim-cell metric-cell" :class="`metric-${metric.key}`">
+              {{ t(`compare.metric.${metric.key}`) }}
+            </div>
+            <div
+              v-for="u in universes"
+              :key="u.session_id + metric.key"
+              class="val-cell metric-value-cell"
+              :class="`metric-value-${metric.key}`"
+              role="button"
+              @click="router.push(`/evolution/${u.session_id}`)"
+            >
+              <strong>{{ metricValue(u, metric.key) }}</strong>
+              <span v-if="metricDetail(u, metric.key)" class="metric-detail">
+                {{ metricDetail(u, metric.key) }}
+              </span>
+            </div>
+          </template>
+
           <!-- 叙事终局行 -->
           <div class="dim-cell narrative">{{ t('compare.endingRow') }}</div>
           <div
@@ -156,6 +176,15 @@ const dims = [
   { key: 'resources' }, { key: 'psyche' },
 ]
 
+const realismMetrics = [
+  { key: 'finance' },
+  { key: 'time' },
+  { key: 'health' },
+  { key: 'stress' },
+  { key: 'relationships' },
+  { key: 'uncertainty' },
+]
+
 function archetypeLabel(key) {
   const i18nKey = `branch.archetype.${key}`
   return te(i18nKey) ? t(i18nKey) : (key || '')
@@ -199,6 +228,58 @@ function extractSacrifice(u) {
   }
   if (sacrifices.length) return sacrifices.slice(0, 2).join('；')
   return '维持现状与机会成本'
+}
+
+function displayNumber(value, suffix = '') {
+  return value === null || value === undefined || value === '' ? t('compare.metric.unknown') : `${value}${suffix}`
+}
+
+function metricValue(universe, key) {
+  const realism = universe.final_realism || {}
+  if (key === 'finance') {
+    const finance = realism.finance || {}
+    if (finance.cash_months === null && finance.debt_months === null) return t('compare.metric.unknown')
+    return `${t('compare.metric.cash')} ${displayNumber(finance.cash_months, t('compare.metric.monthUnit'))}`
+      + ` · ${t('compare.metric.debt')} ${displayNumber(finance.debt_months, t('compare.metric.monthUnit'))}`
+  }
+  if (key === 'time') return `${universe.stages_done || 0}/${universe.stage_count || 0} ${t('compare.metric.stageUnit')}`
+  if (key === 'health') return displayNumber(realism.health_score, '/100')
+  if (key === 'stress') return displayNumber(realism.stress_carryover, '/100')
+  if (key === 'relationships') {
+    const relations = (realism.relationships || [])
+      .filter(item => item && typeof item.tension === 'number')
+      .sort((a, b) => b.tension - a.tension)
+    if (!relations.length) return t('compare.metric.unknown')
+    return `${relations[0].name || t('compare.metric.unnamed')} · ${relations[0].tension}/100`
+  }
+  const uncertainty = universe.uncertainty || {}
+  const count = (uncertainty.divergence_count || 0)
+    + (uncertainty.causal_violation_count || 0)
+    + (uncertainty.key_assumption ? 1 : 0)
+    + (uncertainty.life_event ? 1 : 0)
+  return count ? t('compare.metric.variableCount', { n: count }) : t('compare.metric.unknown')
+}
+
+function metricDetail(universe, key) {
+  const realism = universe.final_realism || {}
+  if (key === 'finance') {
+    const finance = realism.finance || {}
+    return `${t('compare.metric.income')} ${displayNumber(finance.income_stability, '/5')}`
+  }
+  if (key === 'relationships') {
+    const relation = (realism.relationships || [])
+      .filter(item => item && typeof item.tension === 'number')
+      .sort((a, b) => b.tension - a.tension)[0]
+    return relation?.last_event || ''
+  }
+  if (key !== 'uncertainty') return ''
+  const uncertainty = universe.uncertainty || {}
+  const details = []
+  if (uncertainty.key_assumption) details.push(`${t('compare.metric.assumption')}: ${uncertainty.key_assumption}`)
+  if (uncertainty.divergence_count) details.push(t('compare.metric.divergences', { n: uncertainty.divergence_count }))
+  if (uncertainty.life_event) details.push(`${t('compare.metric.lifeEvent')}: ${uncertainty.life_event}`)
+  if (uncertainty.causal_violation_count) details.push(t('compare.metric.causal', { n: uncertainty.causal_violation_count }))
+  return details.join(' · ')
 }
 
 onMounted(async () => {
@@ -428,6 +509,17 @@ onMounted(async () => {
   background: #FEF2F2;
 }
 
+.dim-cell.metric-cell {
+  color: var(--c-ink-3);
+}
+
+.dim-cell.metric-finance { border-left-color: var(--a-detour); }
+.dim-cell.metric-time { border-left-color: var(--c-ink-4); }
+.dim-cell.metric-health { border-left-color: var(--a-balanced); }
+.dim-cell.metric-stress { border-left-color: var(--a-aggressive); }
+.dim-cell.metric-relationships { border-left-color: var(--a-conservative); }
+.dim-cell.metric-uncertainty { border-left-color: var(--a-exit); }
+
 .val-cell {
   cursor: pointer;
   transition: background 0.12s;
@@ -492,6 +584,33 @@ onMounted(async () => {
 .val-cell.snapshot {
   color: var(--c-ink-3);
   font-size: 12px;
+}
+
+.metric-value-cell {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.metric-value-cell strong {
+  color: var(--c-ink-2);
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.metric-detail {
+  color: var(--c-ink-4);
+  font-size: 11px;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+
+.metric-value-stress strong {
+  color: var(--a-aggressive);
+}
+
+.metric-value-uncertainty strong {
+  color: var(--a-exit);
 }
 
 /* 偏离汇总 */

@@ -186,7 +186,27 @@
       "prideTitle": "骄傲与尊严底线",
       "traumaTitle": "敏感创伤/羞耻雷区",
       "literaryTitle": "文学材料分析",
-      "literaryNotice": "此页仅分析虚构人物与文本主题，不会写入个人画像，也不能用于关系人或人生推演。"
+      "literaryNotice": "此页仅分析虚构人物与文本主题，不会写入个人画像，也不能用于关系人或人生推演。",
+      "evidenceTitle": "画像证据链",
+      "evidenceVerified": "引用均可回溯到已提交资料",
+      "evidenceNeedsReview": "部分结论缺少可核验引用",
+      "evidenceCount": "已定位 {n} 条引用",
+      "openEvidence": "查看证据链",
+      "evidenceField": {
+        "currentState": "当前状态",
+        "trait": "特征",
+        "pattern": "模式",
+        "evidence": "证据描述",
+        "example": "原文示例",
+        "summary": "摘要",
+        "content": "内容",
+        "scene": "场景",
+        "feature": "表达特征",
+        "anchor": "锚点",
+        "trigger": "触发点",
+        "rationale": "理由",
+        "influence": "影响"
+      }
     },
     "mat": {
       "structured_form": "量化表单",
@@ -454,7 +474,41 @@
     "closingText": "这些宇宙或许永远不会真的发生。\n\n它们的价值在于：当现实的混沌再次涌来，当你不得不在信息不完整的黑暗中做出决定——你不再是第一次面对。那些路上的风景与代价，你已经在心智里走过一遍。恐惧仍然会在，但它不再能让你停下来。\n\n你可以从容地选择。",
     "nextDebateTitle": "下一步：将分歧带入辩论",
     "nextDebateDesc": "不同宇宙展现了迥异的路径与代价。让不同宇宙的你与在乎的关系人围坐一桌，对质真实抉择。",
-    "goRoundtableBtn": "召开平行宇宙圆桌"
+    "goRoundtableBtn": "召开平行宇宙圆桌",
+    "metric": {
+      "finance": "现金与负债",
+      "time": "时间覆盖",
+      "health": "健康余量",
+      "stress": "压力残留",
+      "relationships": "关系张力",
+      "uncertainty": "不确定性",
+      "cash": "现金",
+      "debt": "负债",
+      "income": "收入稳定",
+      "monthUnit": "个月",
+      "stageUnit": "阶段",
+      "unknown": "未记录",
+      "unnamed": "关系人",
+      "variableCount": "{n} 个变量",
+      "assumption": "关键假设",
+      "divergences": "偏离 {n} 次",
+      "lifeEvent": "意外事件",
+      "causal": "因果约束 {n} 项"
+    }
+  },
+  "evidence": {
+    "kicker": "证据审计",
+    "close": "关闭证据抽屉",
+    "loading": "加载资料索引中…",
+    "summary": "已定位 {verified} 条可验证引用。",
+    "summaryWithWarnings": "已定位 {verified} 条引用，另有 {warnings} 项需要核验。",
+    "inference": "推断",
+    "unknownSource": "未知资料",
+    "noVerifiedTitle": "暂无可验证引用",
+    "noVerifiedDescription": "这些内容可能来自推断，或原始资料尚未建立证据索引。",
+    "referenceUnavailable": "原文块已不可用，无法在当前资料索引中定位。",
+    "warningTitle": "证据边界",
+    "warningDescription": "模型中有 {n} 项结论没有通过引用校验；它们不会被当作已确认事实。"
   },
   "graphView": {
     "emptyGraph": "图谱为空"

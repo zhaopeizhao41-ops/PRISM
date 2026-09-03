@@ -21,6 +21,16 @@
       </div>
 
       <template v-else>
+        <EvidenceDrawer
+          :open="evidenceOpen"
+          :title="t('profile.view.evidenceTitle')"
+          :items="evidenceItems"
+          :materials="materials"
+          :warnings="evidenceWarnings"
+          :loading="materialsLoading"
+          @close="evidenceOpen = false"
+        />
+
         <section v-if="isLiterary" class="scope-banner literary-banner" role="status">
           <strong>{{ t('profile.view.literaryTitle') }}</strong>
           <span>{{ t('profile.view.literaryNotice') }}</span>
@@ -33,6 +43,16 @@
           <p class="current-state">{{ model.current_state || t('common.noData') }}</p>
           <div v-if="sourceTags.length" class="source-tags">
             <span v-for="s in sourceTags" :key="s" class="source-tag">{{ s }}</span>
+          </div>
+          <div class="traceability-row" :class="{ warning: evidenceWarnings.length || !evidenceCount }">
+            <div class="traceability-state">
+              <span class="traceability-dot" aria-hidden="true"></span>
+              <span>{{ evidenceWarnings.length || !evidenceCount ? t('profile.view.evidenceNeedsReview') : t('profile.view.evidenceVerified') }}</span>
+              <span class="traceability-count">{{ t('profile.view.evidenceCount', { n: evidenceCount }) }}</span>
+            </div>
+            <button class="evidence-open-btn" type="button" @click="evidenceOpen = true">
+              {{ t('profile.view.openEvidence') }} →
+            </button>
           </div>
         </section>
 
@@ -375,7 +395,8 @@ import { ref, computed, onMounted } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import AppHeader from '../components/AppHeader.vue'
-import { getPersonalModel, getLiteraryAnalysis } from '../api/profile'
+import EvidenceDrawer from '../components/EvidenceDrawer.vue'
+import { getPersonalModel, getLiteraryAnalysis, listMaterials } from '../api/profile'
 import {
   getRelationshipCandidates,
   generateRelationshipAgents,
@@ -400,6 +421,95 @@ const model = ref(null)
 const versions = ref([])
 const detailsOpen = ref(false)
 const isLiterary = computed(() => route.query.scope === 'literary')
+const materials = ref([])
+const materialsLoading = ref(false)
+const evidenceOpen = ref(false)
+
+const evidenceWarnings = computed(() => {
+  const warnings = model.value?.traceability?.warnings
+  return Array.isArray(warnings) ? warnings : []
+})
+
+const evidenceItems = computed(() => collectEvidenceItems(model.value))
+const evidenceCount = computed(() => evidenceItems.value.reduce((count, item) => count + item.refs.length, 0))
+
+const evidenceFieldNames = {
+  current_state: 'profile.view.evidenceField.currentState',
+  trait: 'profile.view.evidenceField.trait',
+  pattern: 'profile.view.evidenceField.pattern',
+  evidence: 'profile.view.evidenceField.evidence',
+  example: 'profile.view.evidenceField.example',
+  summary: 'profile.view.evidenceField.summary',
+  content: 'profile.view.evidenceField.content',
+  scene: 'profile.view.evidenceField.scene',
+  feature: 'profile.view.evidenceField.feature',
+  anchor: 'profile.view.evidenceField.anchor',
+  trigger: 'profile.view.evidenceField.trigger',
+  rationale: 'profile.view.evidenceField.rationale',
+  influence: 'profile.view.evidenceField.influence',
+}
+
+function evidenceFieldLabel(path) {
+  const key = path[path.length - 1] || 'value'
+  const i18nKey = evidenceFieldNames[key]
+  if (i18nKey && te(i18nKey)) return t(i18nKey)
+  return key.replaceAll('_', ' ')
+}
+
+function evidenceClaim(value) {
+  const candidates = [
+    value?.claim,
+    value?.summary,
+    value?.content,
+    value?.evidence,
+    value?.example,
+    value?.trait,
+    value?.pattern,
+    value?.scene,
+    value?.feature,
+    value?.anchor,
+    value?.trigger,
+    value?.current_state,
+    value?.influence,
+  ]
+  return candidates.find(candidate => typeof candidate === 'string' && candidate.trim()) || ''
+}
+
+function collectEvidenceItems(value, path = [], output = []) {
+  if (Array.isArray(value)) {
+    value.forEach((child, index) => collectEvidenceItems(child, [...path, String(index)], output))
+    return output
+  }
+  if (!value || typeof value !== 'object') return output
+
+  if (Array.isArray(value.evidence_refs) && value.evidence_refs.length) {
+    output.push({
+      id: path.join('.') || 'root',
+      label: evidenceFieldLabel(path),
+      claim: evidenceClaim(value),
+      source: value.source || 'inference',
+      refs: value.evidence_refs.filter(ref => ref && typeof ref === 'object'),
+    })
+  }
+
+  Object.entries(value).forEach(([key, child]) => {
+    if (key !== 'evidence_refs') collectEvidenceItems(child, [...path, key], output)
+  })
+  return output
+}
+
+async function loadEvidenceMaterials() {
+  materialsLoading.value = true
+  try {
+    const res = await listMaterials(props.projectId)
+    materials.value = res.data?.materials || []
+  } catch (e) {
+    materials.value = []
+    console.debug('Evidence materials unavailable', e)
+  } finally {
+    materialsLoading.value = false
+  }
+}
 
 // ----- 关系人 Agent -----
 const agentCards = ref([])
@@ -635,6 +745,7 @@ onMounted(async () => {
       : await getPersonalModel(props.projectId)
     model.value = res.data.model
     versions.value = res.data.versions || []
+    await loadEvidenceMaterials()
     if (!isLiterary.value) await loadExistingCards()
   } catch (e) {
     loadError.value = e?.message || String(e)
@@ -801,6 +912,61 @@ onMounted(async () => {
   border: 1px solid var(--c-line-soft);
   padding: 3px 8px;
   border-radius: var(--r-lg);
+}
+
+.traceability-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-top: 18px;
+  padding-top: 12px;
+  border-top: 1px dashed var(--c-line-soft);
+  color: var(--c-ink-3);
+  font-size: 12px;
+}
+
+.traceability-row.warning {
+  color: var(--c-brand);
+}
+
+.traceability-state {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  min-width: 0;
+}
+
+.traceability-dot {
+  width: 7px;
+  height: 7px;
+  flex: 0 0 7px;
+  border-radius: 50%;
+  background: var(--c-balanced, #2F9E77);
+}
+
+.traceability-row.warning .traceability-dot {
+  background: var(--c-brand);
+}
+
+.traceability-count {
+  color: var(--c-ink-4);
+}
+
+.evidence-open-btn {
+  flex: 0 0 auto;
+  border: 1px solid var(--c-line-strong);
+  background: var(--c-paper);
+  color: var(--c-ink-2);
+  padding: 5px 9px;
+  font-family: inherit;
+  font-size: 11px;
+  cursor: pointer;
+}
+
+.evidence-open-btn:hover {
+  border-color: var(--c-brand);
+  color: var(--c-brand);
 }
 
 /* 目标与卡点 */
