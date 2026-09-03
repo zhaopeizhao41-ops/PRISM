@@ -155,3 +155,17 @@ export function deleteProject(projectId) {
     method: 'delete'
   })
 }
+
+/**
+ * 导出项目快照。浏览器下载由页面使用返回的 blob 完成。
+ * @param {string} projectId
+ * @param {boolean} includeRaw - 是否明确包含原始资料正文与引用
+ */
+export function exportProject(projectId, includeRaw = false) {
+  return service({
+    url: `/api/profile/export/${projectId}`,
+    method: 'get',
+    params: { include_raw: includeRaw ? 'true' : 'false' },
+    responseType: 'blob'
+  })
+}

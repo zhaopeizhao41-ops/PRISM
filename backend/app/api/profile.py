@@ -12,8 +12,10 @@ import os
 import json
 import threading
 import traceback
+from io import BytesIO
+from datetime import datetime, timezone
 
-from flask import request, jsonify
+from flask import request, jsonify, send_file
 
 from . import profile_bp
 from ..config import Config
@@ -111,6 +113,115 @@ def _save_manifest(project_id: str, manifest: list) -> None:
 
 def _literary_analysis_path(project_id: str) -> str:
     return os.path.join(ProjectManager._get_project_dir(project_id), 'literary_analysis.json')
+
+
+_EXPORT_SECRET_KEYS = {
+    'api_key', 'llm_api_key', 'zep_api_key', 'secret_key', 'authorization',
+    'access_token', 'refresh_token', 'password',
+}
+_EXPORT_RAW_KEYS = {
+    'normalized_text', 'raw_text', 'extracted_text', 'source_text',
+    'original_text', 'quote', 'evidence', 'example', 'excerpt', 'passage',
+    'source_excerpt', 'evidence_refs', 'chunks',
+}
+
+
+def _sanitize_export_value(value, *, include_raw: bool, key: str = ''):
+    """Strip credentials and, by default, fields that contain source text."""
+    key_name = str(key).lower()
+    if key_name in _EXPORT_SECRET_KEYS or any(
+        secret in key_name for secret in ('api_key', 'secret', 'access_token', 'refresh_token')
+    ):
+        return None
+    if not include_raw and key_name in _EXPORT_RAW_KEYS:
+        return None
+    if isinstance(value, dict):
+        result = {}
+        for child_key, child_value in value.items():
+            sanitized = _sanitize_export_value(
+                child_value, include_raw=include_raw, key=str(child_key)
+            )
+            if sanitized is not None:
+                result[str(child_key)] = sanitized
+        return result
+    if isinstance(value, list):
+        return [
+            sanitized
+            for item in value
+            for sanitized in [_sanitize_export_value(item, include_raw=include_raw)]
+            if sanitized is not None
+        ]
+    return value
+
+
+def _read_json_file(path: str):
+    try:
+        with open(path, 'r', encoding='utf-8') as f:
+            return json.load(f)
+    except (OSError, json.JSONDecodeError):
+        return None
+
+
+def _build_project_export(project, *, include_raw: bool) -> dict:
+    """Build a portable, privacy-aware snapshot without exposing configuration."""
+    from ..models.action_experiment import ActionExperimentStore
+    from ..models.branch import BranchStore
+    from ..models.evolution import EvolutionStore
+    from ..models.relationship_agent import RelationshipAgentStore
+    from ..models.roundtable import RoundtableStore
+
+    manifest = _load_manifest(project.project_id)
+    materials = []
+    for material in manifest:
+        item = {
+            'material_id': material.get('material_id'),
+            'material_type': material.get('material_type'),
+            'material_mode': material.get('material_mode', 'personal'),
+            'schema_version': material.get('schema_version', 1),
+            'fingerprint': material.get('fingerprint'),
+            'char_count': material.get('char_count', 0),
+            'goals': material.get('goals') or [],
+            'has_text': bool(material.get('normalized_text')),
+        }
+        if include_raw:
+            item['normalized_text'] = material.get('normalized_text', '')
+            item['chunks'] = material.get('chunks') or []
+        materials.append(item)
+
+    project_data = project.to_dict()
+    project_data['files'] = [
+        {
+            'filename': item.get('filename') or item.get('original_filename'),
+            'size': item.get('size', 0),
+        }
+        for item in (project.files or [])
+        if isinstance(item, dict)
+    ]
+    snapshot = {
+        'schema_version': 1,
+        'exported_at': datetime.now(timezone.utc).isoformat(),
+        'privacy': {
+            'includes_raw_materials': include_raw,
+            'includes_source_citations': include_raw,
+            'note': (
+                '原始资料正文与原文引用已包含在导出中。'
+                if include_raw else
+                '默认导出不包含原始资料正文、原文引用或本地文件路径。'
+            ),
+        },
+        'project': project_data,
+        'materials': materials,
+        'personal_model': PersonalModelStore.get_current(project.project_id),
+        'literary_analysis': _read_json_file(_literary_analysis_path(project.project_id)),
+        'branches': BranchStore.get_current(project.project_id),
+        'evolutions': EvolutionStore.list_sessions(project.project_id),
+        'relationships': RelationshipAgentStore.get_current(project.project_id),
+        'roundtables': RoundtableStore.list_dialogs(project.project_id),
+        'action_experiments': ActionExperimentStore.list(project.project_id),
+    }
+    if include_raw:
+        snapshot['extracted_text'] = ProjectManager.get_extracted_text(project.project_id) or ''
+    return _sanitize_export_value(snapshot, include_raw=include_raw)
 
 
 def _save_literary_analysis(project_id: str, model: dict) -> None:
@@ -982,6 +1093,34 @@ def list_profile_projects():
             "resume_total": (resume_session or {}).get("stage_count"),
         })
     return jsonify({"success": True, "data": result})
+
+
+@profile_bp.route('/export/<project_id>', methods=['GET'])
+def export_profile_project(project_id: str):
+    """Download a privacy-aware project snapshot.
+
+    Raw source text and source citations require the explicit ``include_raw``
+    query flag. Credentials and local file paths are always excluded.
+    """
+    project, error = _get_profile_project(project_id)
+    if error:
+        return error
+
+    include_raw = str(request.args.get('include_raw', '')).strip().lower() in {
+        '1', 'true', 'yes', 'on'
+    }
+    payload = _build_project_export(project, include_raw=include_raw)
+    content = json.dumps(payload, ensure_ascii=False, indent=2).encode('utf-8')
+    filename = f"{project.project_id}-export.json"
+    response = send_file(
+        BytesIO(content),
+        mimetype='application/json; charset=utf-8',
+        as_attachment=True,
+        download_name=filename,
+    )
+    response.headers['Cache-Control'] = 'no-store'
+    response.headers['Pragma'] = 'no-cache'
+    return response
 
 
 @profile_bp.route('/project/<project_id>', methods=['DELETE'])

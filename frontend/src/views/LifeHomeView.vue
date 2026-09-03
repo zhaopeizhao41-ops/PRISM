@@ -63,6 +63,14 @@
               <div class="card-head-right">
                 <span class="project-date">{{ formatDate(p.created_at) }}</span>
                 <button
+                  class="project-export-btn"
+                  type="button"
+                  :title="t('lifeHome.export')"
+                  @click.stop="promptExport(p)"
+                >
+                  ↓
+                </button>
+                <button
                   class="project-del-btn"
                   type="button"
                   :title="t('common.delete')"
@@ -100,6 +108,28 @@
               </button>
               <button class="modal-btn delete" type="button" :disabled="deleteBusy" @click="doDelete">
                 {{ deleteBusy ? t('common.loading') : t('common.confirm') }}
+              </button>
+            </div>
+          </div>
+        </div>
+
+        <!-- 导出确认弹窗：默认不包含原始资料正文 -->
+        <div v-if="exportTarget" class="modal-backdrop" @click="cancelExport">
+          <div class="modal-dialog" @click.stop>
+            <div class="modal-title">
+              <span class="status-dot">↓</span> {{ t('lifeHome.exportTitle') }}: {{ exportTarget.name }}
+            </div>
+            <p class="modal-desc">{{ t('lifeHome.exportDesc') }}</p>
+            <label class="export-raw-option">
+              <input v-model="exportIncludeRaw" type="checkbox" />
+              <span>{{ t('lifeHome.exportIncludeRaw') }}</span>
+            </label>
+            <div class="modal-actions">
+              <button class="modal-btn cancel" type="button" :disabled="exportBusy" @click="cancelExport">
+                {{ t('common.cancel') }}
+              </button>
+              <button class="modal-btn export" type="button" :disabled="exportBusy" @click="doExport">
+                {{ exportBusy ? t('common.loading') : t('lifeHome.exportConfirm') }}
               </button>
             </div>
           </div>
@@ -143,7 +173,7 @@ import { ref, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import LanguageSwitcher from '../components/LanguageSwitcher.vue'
-import { getProfileProjects, deleteProject } from '../api/profile'
+import { getProfileProjects, deleteProject, exportProject } from '../api/profile'
 
 const router = useRouter()
 const { t } = useI18n()
@@ -152,6 +182,9 @@ const loading = ref(true)
 const projects = ref([])
 const deleteTarget = ref(null)
 const deleteBusy = ref(false)
+const exportTarget = ref(null)
+const exportIncludeRaw = ref(false)
+const exportBusy = ref(false)
 
 function formatDate(iso) {
   if (!iso) return ''
@@ -174,6 +207,16 @@ function cancelDelete() {
   deleteTarget.value = null
 }
 
+function promptExport(p) {
+  exportTarget.value = p
+  exportIncludeRaw.value = false
+}
+
+function cancelExport() {
+  if (exportBusy.value) return
+  exportTarget.value = null
+}
+
 async function doDelete() {
   if (!deleteTarget.value || deleteBusy.value) return
   deleteBusy.value = true
@@ -185,6 +228,28 @@ async function doDelete() {
     console.error('Delete failed', err)
   } finally {
     deleteBusy.value = false
+  }
+}
+
+async function doExport() {
+  if (!exportTarget.value || exportBusy.value) return
+  exportBusy.value = true
+  const target = exportTarget.value
+  try {
+    const blob = await exportProject(target.project_id, exportIncludeRaw.value)
+    const url = URL.createObjectURL(blob)
+    const anchor = document.createElement('a')
+    anchor.href = url
+    anchor.download = `${target.project_id}-export.json`
+    document.body.appendChild(anchor)
+    anchor.click()
+    anchor.remove()
+    URL.revokeObjectURL(url)
+    exportTarget.value = null
+  } catch (err) {
+    console.error('Export failed', err)
+  } finally {
+    exportBusy.value = false
   }
 }
 
@@ -425,6 +490,7 @@ onMounted(async () => {
   white-space: nowrap;
 }
 
+.project-export-btn,
 .project-del-btn {
   opacity: 0;
   pointer-events: none;
@@ -438,16 +504,41 @@ onMounted(async () => {
   transition: all 0.15s;
 }
 
+.project-export-btn {
+  color: var(--c-brand);
+}
+
+.project-card:hover .project-export-btn,
 .project-card:hover .project-del-btn {
   opacity: 1;
   pointer-events: auto;
   color: var(--c-ink-3);
 }
 
+.project-export-btn:hover {
+  background: var(--c-brand-soft);
+  border-color: var(--c-brand-line);
+}
+
 .project-del-btn:hover {
   background: var(--c-bg-soft);
   color: var(--a-aggressive);
   border-color: var(--c-line);
+}
+
+.export-raw-option {
+  display: flex;
+  align-items: flex-start;
+  gap: 9px;
+  margin: -4px 0 20px;
+  font-size: 13px;
+  color: var(--c-ink-2);
+  line-height: 1.5;
+}
+
+.export-raw-option input {
+  margin-top: 3px;
+  accent-color: var(--c-brand);
 }
 
 .card-badges {
@@ -626,6 +717,18 @@ onMounted(async () => {
 
 .modal-btn.delete:hover:not(:disabled) {
   background: #c93b40;
+  box-shadow: var(--shadow-pop-sm);
+  transform: translate(-1px, -1px);
+}
+
+.modal-btn.export {
+  background: var(--c-ink);
+  color: var(--c-paper);
+  border-color: var(--c-ink);
+}
+
+.modal-btn.export:hover:not(:disabled) {
+  background: var(--c-ink-2);
   box-shadow: var(--shadow-pop-sm);
   transform: translate(-1px, -1px);
 }
