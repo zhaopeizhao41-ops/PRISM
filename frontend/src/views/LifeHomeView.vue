@@ -7,6 +7,9 @@
       </div>
       <div class="nav-links">
         <LanguageSwitcher />
+        <button class="demo-btn" type="button" :disabled="demoBusy" @click="openDemo">
+          {{ demoBusy ? t('lifeHome.demoOpening') : t('lifeHome.tryDemo') }}
+        </button>
         <button class="create-btn" type="button" @click="router.push('/profile/create')">
           + {{ t('lifeHome.create') }}
         </button>
@@ -43,6 +46,10 @@
 
         <div v-else-if="!projects.length" class="empty-state">
           <p>{{ t('lifeHome.emptyHint') }}</p>
+          <p class="demo-hint">{{ t('lifeHome.demoDesc') }}</p>
+          <button class="demo-cta" type="button" :disabled="demoBusy" @click="openDemo">
+            {{ demoBusy ? t('lifeHome.demoOpening') : t('lifeHome.tryDemo') }} →
+          </button>
           <button class="hero-cta" type="button" @click="router.push('/profile/create')">
             {{ t('lifeHome.cta') }} →
           </button>
@@ -57,6 +64,7 @@
             tabindex="0"
             @click="handleCardClick(p)"
             @keydown.enter="handleCardClick(p)"
+            @keydown.space.prevent="handleCardClick(p)"
           >
             <div class="card-head">
               <span class="project-name">{{ p.name }}</span>
@@ -81,6 +89,7 @@
               </div>
             </div>
             <div class="card-badges">
+              <span v-if="p.is_demo" class="badge demo">{{ t('lifeHome.demoBadge') }}</span>
               <span v-if="p.model_version" class="badge model">v{{ p.model_version }}</span>
               <span v-else class="badge pending">{{ t('lifeHome.noModel') }}</span>
               <span v-if="p.resume_session_id" class="badge active-session">
@@ -112,6 +121,8 @@
             </div>
           </div>
         </div>
+
+        <p v-if="homeError" class="home-error" role="alert">{{ homeError }}</p>
 
         <!-- 导出确认弹窗：默认不包含原始资料正文 -->
         <div v-if="exportTarget" class="modal-backdrop" @click="cancelExport">
@@ -173,7 +184,7 @@ import { ref, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import LanguageSwitcher from '../components/LanguageSwitcher.vue'
-import { getProfileProjects, deleteProject, exportProject } from '../api/profile'
+import { createDemoProject, getProfileProjects, deleteProject, exportProject } from '../api/profile'
 
 const router = useRouter()
 const { t } = useI18n()
@@ -185,6 +196,8 @@ const deleteBusy = ref(false)
 const exportTarget = ref(null)
 const exportIncludeRaw = ref(false)
 const exportBusy = ref(false)
+const demoBusy = ref(false)
+const homeError = ref('')
 
 function formatDate(iso) {
   if (!iso) return ''
@@ -205,6 +218,23 @@ function promptDelete(p) {
 
 function cancelDelete() {
   deleteTarget.value = null
+}
+
+async function openDemo() {
+  if (demoBusy.value) return
+  demoBusy.value = true
+  homeError.value = ''
+  try {
+    const res = await createDemoProject()
+    const id = res.data?.project_id
+    if (!id) throw new Error('demo project id missing')
+    router.push(`/workbench/${id}`)
+  } catch (error) {
+    console.error('Open demo failed', error)
+    homeError.value = t('lifeHome.demoError')
+  } finally {
+    demoBusy.value = false
+  }
 }
 
 function promptExport(p) {
@@ -322,6 +352,28 @@ onMounted(async () => {
 
 .create-btn:hover {
   background: var(--c-brand-deep);
+}
+
+.demo-btn {
+  background: var(--c-paper);
+  color: var(--c-brand);
+  border: 1px solid var(--c-brand);
+  padding: 7px 14px;
+  font-size: 12px;
+  font-weight: 700;
+  cursor: pointer;
+  border-radius: var(--r-sm);
+  font-family: inherit;
+}
+
+.demo-btn:hover:not(:disabled) {
+  background: var(--c-brand-soft);
+}
+
+.demo-btn:disabled,
+.demo-cta:disabled {
+  opacity: 0.55;
+  cursor: wait;
 }
 
 .main-content {
@@ -567,6 +619,13 @@ onMounted(async () => {
   color: var(--c-brand);
 }
 
+.badge.demo {
+  background: var(--c-brand-soft);
+  color: var(--c-brand);
+  border: 1px solid var(--c-brand-line);
+  font-weight: 700;
+}
+
 .badge.active-session {
   background: var(--c-brand-soft);
   color: var(--c-brand);
@@ -595,6 +654,39 @@ onMounted(async () => {
   text-align: center;
   color: var(--c-ink-4);
   font-size: 14px;
+}
+
+.empty-state p {
+  margin: 0 0 10px;
+}
+
+.empty-state .demo-hint {
+  color: var(--c-ink-3);
+  font-size: 13px;
+}
+
+.demo-cta {
+  margin: 8px 8px 0;
+  background: var(--c-brand);
+  color: var(--c-paper);
+  border: 1px solid var(--c-brand);
+  padding: 10px 18px;
+  font-size: 13px;
+  font-weight: 700;
+  cursor: pointer;
+  border-radius: var(--r-sm);
+  font-family: inherit;
+}
+
+.demo-cta:hover:not(:disabled) {
+  background: var(--c-brand-deep);
+}
+
+.home-error {
+  margin: 12px 0 0;
+  color: var(--a-aggressive);
+  font-size: 13px;
+  text-align: center;
 }
 
 /* 流程说明 */

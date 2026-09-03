@@ -42,6 +42,7 @@ from ..models.task import TaskManager, TaskStatus
 from ..models.project import ProjectManager, ProjectStatus
 from ..models.personal_model import PersonalModelStore
 from ..services.profile_synthesizer import ProfileSynthesizer
+from ..services.demo_project import ensure_demo_project
 from ..utils.privacy import has_cloud_processing_consent, privacy_public_view
 
 logger = get_logger('prism.profile')
@@ -306,6 +307,35 @@ def create_profile_project():
     return jsonify({
         "success": True,
         "data": {"project_id": project.project_id}
+    })
+
+
+@profile_bp.route('/demo', methods=['POST'])
+def create_demo_project():
+    """Return a complete local-only project for first-time exploration.
+
+    Seeding uses persisted demo fixtures and never constructs an LLM/Zep
+    client. Repeated requests return the same project instead of duplicating
+    demo data.
+    """
+    try:
+        project, created = ensure_demo_project()
+    except Exception as exc:
+        logger.exception("创建本地演示项目失败")
+        return jsonify({
+            "success": False,
+            "error": "本地演示项目创建失败，请稍后重试",
+            "details": str(exc),
+        }), 500
+    return jsonify({
+        "success": True,
+        "data": {
+            "project_id": project.project_id,
+            "name": project.name,
+            "is_demo": True,
+            "created": created,
+            "cloud_processing_consent": False,
+        },
     })
 
 
@@ -1100,6 +1130,7 @@ def list_profile_projects():
         result.append({
             "project_id": p.project_id,
             "name": p.name,
+            "is_demo": bool(getattr(p, "is_demo", False)),
             "status": p.status,
             "created_at": p.created_at,
             "model_version": (model or {}).get("model_version"),

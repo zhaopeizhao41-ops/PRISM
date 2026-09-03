@@ -118,6 +118,16 @@ export function getPersonalModel(projectId) {
   })
 }
 
+/**
+ * 创建或复用本地脱敏演示项目，不调用 LLM 或 Zep Cloud。
+ */
+export function createDemoProject() {
+  return service({
+    url: '/api/profile/demo',
+    method: 'post'
+  })
+}
+
 export function comparePersonalModelVersions(projectId, fromVersion, toVersion) {
   return service({
     url: `/api/profile/model/compare/${projectId}`,

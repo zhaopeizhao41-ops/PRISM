@@ -13,6 +13,14 @@
           </div>
         </header>
 
+        <section v-if="!loading && isDemo" class="demo-banner" role="status">
+          <span class="demo-banner-mark" aria-hidden="true">◇</span>
+          <span class="demo-banner-text">{{ t('workbench.demoBanner') }}</span>
+          <button class="link-btn demo-banner-btn" type="button" @click="router.push('/profile/create')">
+            {{ t('workbench.demoCta') }} →
+          </button>
+        </section>
+
         <section v-if="!loading && nextAction" class="next-action-panel" :class="`tone-${nextAction.tone}`">
           <div class="next-action-mark" aria-hidden="true">→</div>
           <div class="next-action-copy">
@@ -425,6 +433,7 @@ function switchMode(mode) {
 
 // ---------- 工作台数据 ----------
 const loading = ref(true)
+const isDemo = ref(false)
 const model = ref(null)
 const branchCount = ref(0)
 const roundtableCount = ref(0)
@@ -721,6 +730,7 @@ async function loadWorkbench() {
     projectTasks.value = tasksRes.data || []
     scheduleTaskPolling()
     const proj = (projectsRes.data || []).find(p => p.project_id === props.projectId)
+    isDemo.value = Boolean(proj?.is_demo)
     roundtableCount.value = roundtables.value.length || proj?.roundtable_count || 0
     // 智能默认展开最高进展步骤
     if (sessions.value.length) {
@@ -994,6 +1004,39 @@ onBeforeUnmount(stopTaskPolling)
   margin-top: 6px;
   color: var(--c-ink-4);
   font-size: 13px;
+}
+
+.demo-banner {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 0 0 22px;
+  padding: 11px 14px;
+  border: 1px solid var(--c-brand-line);
+  border-left: 4px solid var(--c-brand);
+  background: var(--c-brand-soft);
+  color: var(--c-ink-2);
+  font-size: 12px;
+  line-height: 1.55;
+}
+
+.demo-banner-mark {
+  flex: 0 0 auto;
+  color: var(--c-brand);
+  font-size: 17px;
+  font-weight: 700;
+}
+
+.demo-banner-text {
+  flex: 1;
+  min-width: 0;
+}
+
+.demo-banner-btn {
+  flex: 0 0 auto;
+  color: var(--c-brand);
+  border-color: var(--c-brand);
+  white-space: nowrap;
 }
 
 .next-action-panel {
