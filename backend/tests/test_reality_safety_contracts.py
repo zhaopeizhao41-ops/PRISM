@@ -1,4 +1,8 @@
+import threading
+import time
 import uuid
+
+from flask import Flask
 
 from app.services.profile_materials import canonicalize_goals, free_material_to_text, build_evidence_index
 from app.services.profile_synthesizer import _backfill_evidence_refs
@@ -6,6 +10,7 @@ from app.models.task import TaskManager, TaskStatus
 from app.services.realism_layer import init_realism_state, check_circuit_breakers
 from app.services.evolution_engine import EvolutionEngine
 from app.api.evolution import _comparison_realism
+from app.api import roundtable as roundtable_api
 
 
 def test_fictional_material_is_explicit_and_indexed():
@@ -99,6 +104,124 @@ def test_cancelled_task_is_terminal_and_cannot_be_resurrected():
     assert manager.get_task(task_id).status == TaskStatus.CANCELLED
 
 
+def test_paused_task_waits_until_resumed_and_cancel_wakes_worker():
+    manager = TaskManager()
+    task_id = manager.create_task("pause-contract")
+    try:
+        manager.update_task(task_id, status=TaskStatus.PROCESSING, progress=42)
+        paused = manager.pause_task(task_id)
+        assert paused and paused.status == TaskStatus.PAUSED
+        assert manager.get_task(task_id).to_dict()["status"] == "paused"
+
+        started = threading.Event()
+        finished = threading.Event()
+        result = []
+
+        def worker():
+            started.set()
+            result.append(manager.wait_if_paused(task_id, wait_seconds=0.01))
+            finished.set()
+
+        thread = threading.Thread(target=worker)
+        thread.start()
+        assert started.wait(1)
+        time.sleep(0.03)
+        assert not finished.is_set()
+
+        manager.resume_task(task_id)
+        assert finished.wait(1)
+        assert result == [True]
+        thread.join(timeout=1)
+    finally:
+        with manager._task_lock:
+            manager._tasks.pop(task_id, None)
+            manager._cancel_events.pop(task_id, None)
+            manager._resume_events.pop(task_id, None)
+            manager._persist_locked()
+
+
+def test_cancel_wakes_paused_task_waiter():
+    manager = TaskManager()
+    task_id = manager.create_task("pause-cancel-contract")
+    try:
+        manager.update_task(task_id, status=TaskStatus.PROCESSING)
+        manager.pause_task(task_id)
+        finished = threading.Event()
+        result = []
+
+        def worker():
+            result.append(manager.wait_if_paused(task_id, wait_seconds=0.01))
+            finished.set()
+
+        thread = threading.Thread(target=worker)
+        thread.start()
+        time.sleep(0.03)
+        manager.cancel_task(task_id)
+        assert finished.wait(1)
+        assert result == [False]
+        thread.join(timeout=1)
+    finally:
+        with manager._task_lock:
+            manager._tasks.pop(task_id, None)
+            manager._cancel_events.pop(task_id, None)
+            manager._resume_events.pop(task_id, None)
+            manager._persist_locked()
+
+
+def test_roundtable_pause_resume_endpoints_return_updated_task(monkeypatch):
+    app = Flask(__name__)
+    dialog = {
+        "dialog_id": "rt_contract",
+        "project_id": "project_contract",
+        "task_id": "task_contract",
+        "status": "running",
+    }
+
+    class FakeTask:
+        def __init__(self):
+            self.status = TaskStatus.PROCESSING
+            self.metadata = {"kind": "roundtable"}
+
+        def to_dict(self):
+            return {"task_id": "task_contract", "status": self.status.value}
+
+    class FakeManager:
+        def __init__(self):
+            self.task = FakeTask()
+
+        def get_task(self, task_id):
+            return self.task if task_id == "task_contract" else None
+
+        def pause_task(self, task_id, reason):
+            self.task.status = TaskStatus.PAUSED
+            return self.task
+
+        def resume_task(self, task_id, reason):
+            self.task.status = TaskStatus.PROCESSING
+            return self.task
+
+    manager = FakeManager()
+    saved = []
+    monkeypatch.setattr(roundtable_api, "TaskManager", lambda: manager)
+    monkeypatch.setattr(roundtable_api.RoundtableStore, "get", staticmethod(lambda project_id, dialog_id: dialog))
+    monkeypatch.setattr(roundtable_api.RoundtableStore, "save", staticmethod(lambda value: saved.append(value.copy())))
+
+    with app.test_request_context("/api/roundtable/rt_contract/pause", method="POST", json={"project_id": "project_contract"}):
+        paused_response = roundtable_api.pause_dialog("rt_contract")
+    paused = paused_response.get_json()
+    assert paused["success"] is True
+    assert paused["data"]["task"]["status"] == "paused"
+    assert dialog["status"] == "paused"
+
+    with app.test_request_context("/api/roundtable/rt_contract/resume", method="POST", json={"project_id": "project_contract"}):
+        resumed_response = roundtable_api.resume_dialog("rt_contract")
+    resumed = resumed_response.get_json()
+    assert resumed["success"] is True
+    assert resumed["data"]["task"]["status"] == "processing"
+    assert dialog["status"] == "running"
+    assert len(saved) == 2
+
+
 def test_task_listing_filters_by_project_metadata():
     manager = TaskManager()
     project_id = f"task-filter-{uuid.uuid4().hex}"
@@ -121,6 +244,8 @@ def test_task_listing_filters_by_project_metadata():
             manager._tasks.pop(other_task, None)
             manager._cancel_events.pop(own_task, None)
             manager._cancel_events.pop(other_task, None)
+            manager._resume_events.pop(own_task, None)
+            manager._resume_events.pop(other_task, None)
             manager._persist_locked()
 
 

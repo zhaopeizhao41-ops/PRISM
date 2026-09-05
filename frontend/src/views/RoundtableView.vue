@@ -141,7 +141,7 @@
         <template v-else>
           <header class="page-header">
             <h1 class="page-title">
-              {{ dialogRunning ? t('roundtable.view.inProgress') : t('roundtable.view.finished') }}
+              {{ dialogRunning ? t('roundtable.view.inProgress') : dialogPaused ? t('roundtable.view.paused') : t('roundtable.view.finished') }}
             </h1>
             <p class="roundtopic">「{{ dialog.topic }}」</p>
           </header>
@@ -240,13 +240,35 @@
               {{ dialog.transcript.length >= ((dialog.participants?.length || 0) * (dialog.total_rounds || 1))
                  ? t('roundtable.view.moderating') : t('roundtable.view.waitingSpeech') }}
             </div>
+            <div v-else-if="dialog.status === 'paused'" class="running-hint paused-hint">
+              {{ t('roundtable.view.pausedHint') }}
+            </div>
             <div v-else-if="dialog.status === 'failed'" class="error-text">
               {{ t('roundtable.view.failed') }}{{ dialog.error }}
             </div>
-            <div v-if="dialog.status === 'running'" class="dialog-task-actions">
+            <div v-if="dialog.status === 'running' || dialog.status === 'paused'" class="dialog-task-actions">
+              <button
+                v-if="dialog.status === 'running'"
+                class="ghost-btn"
+                type="button"
+                :disabled="dialogPausing"
+                @click="pauseRunningDialog"
+              >
+                {{ dialogPausing ? t('roundtable.view.pausing') : t('roundtable.view.pauseTask') }}
+              </button>
+              <button
+                v-else
+                class="ghost-btn primary"
+                type="button"
+                :disabled="dialogResuming"
+                @click="resumePausedDialog"
+              >
+                {{ dialogResuming ? t('roundtable.view.resuming') : t('roundtable.view.resumeTask') }}
+              </button>
               <button class="ghost-btn" type="button" :disabled="dialogCancelling" @click="cancelRunningDialog">
                 {{ dialogCancelling ? t('roundtable.view.cancelling') : t('roundtable.view.cancelTask') }}
               </button>
+              <p v-if="setupError" class="error-text dialog-control-error">{{ setupError }}</p>
             </div>
             <div v-else-if="dialog.status === 'failed'" class="dialog-task-actions">
               <button class="ghost-btn primary" type="button" :disabled="dialogRetrying" @click="retryDialog">
@@ -472,7 +494,9 @@ import {
   getRoundtableDialog,
   listRoundtables,
   deleteRoundtable,
-  interjectRoundtableSpeech
+  interjectRoundtableSpeech,
+  pauseRoundtable,
+  resumeRoundtable
 } from '../api/roundtable'
 import { cancelTask } from '../api/graph'
 
@@ -497,9 +521,12 @@ const setupError = ref('')
 const dialogs = ref([])
 const dialog = ref(null)
 const dialogRunning = computed(() => dialog.value?.status === 'running')
+const dialogPaused = computed(() => dialog.value?.status === 'paused')
 const deleteDialogTarget = ref(null)
 const deleteDialogBusy = ref(false)
 const dialogCancelling = ref(false)
+const dialogPausing = ref(false)
+const dialogResuming = ref(false)
 const dialogRetrying = ref(false)
 
 const selectedInterjectTarget = ref('')
@@ -572,6 +599,34 @@ async function cancelRunningDialog() {
     setupError.value = error?.message || t('roundtable.view.cancelFailed')
   } finally {
     dialogCancelling.value = false
+  }
+}
+
+async function pauseRunningDialog() {
+  if (dialogPausing.value || !dialog.value?.dialog_id) return
+  dialogPausing.value = true
+  setupError.value = ''
+  try {
+    const res = await pauseRoundtable(dialog.value.dialog_id, props.projectId)
+    dialog.value = res.data?.dialog || dialog.value
+  } catch (error) {
+    setupError.value = error?.message || t('roundtable.view.pauseFailed')
+  } finally {
+    dialogPausing.value = false
+  }
+}
+
+async function resumePausedDialog() {
+  if (dialogResuming.value || !dialog.value?.dialog_id) return
+  dialogResuming.value = true
+  setupError.value = ''
+  try {
+    const res = await resumeRoundtable(dialog.value.dialog_id, props.projectId)
+    dialog.value = res.data?.dialog || dialog.value
+  } catch (error) {
+    setupError.value = error?.message || t('roundtable.view.resumeFailed')
+  } finally {
+    dialogResuming.value = false
   }
 }
 
@@ -814,7 +869,7 @@ function stopPolling() {
 
 async function pollDialog() {
   const token = pollToken
-  if (Date.now() - pollStartedAt > 10 * 60 * 1000) {
+  if (dialog.value?.status !== 'paused' && Date.now() - pollStartedAt > 10 * 60 * 1000) {
     setupError.value = '圆桌任务超过最大等待时间，请刷新查看状态'
     return
   }
@@ -822,9 +877,9 @@ async function pollDialog() {
     const res = await getRoundtableDialog(dialog.value.dialog_id, props.projectId)
     if (token !== pollToken) return
     dialog.value = res.data
-    if (res.data.status === 'running') {
+    if (['running', 'paused'].includes(res.data.status)) {
       pollAttempts = 0
-      pollTimer = setTimeout(pollDialog, 3000)
+      pollTimer = setTimeout(pollDialog, res.data.status === 'paused' ? 10000 : 3000)
     }
   } catch (err) {
     pollAttempts += 1
@@ -841,10 +896,10 @@ async function openDialog(dialogId) {
   const res = await getRoundtableDialog(dialogId, props.projectId)
   dialog.value = res.data
   phase.value = 'dialog' // 数据就绪后再切换，避免空帧渲染
-  if (res.data.status === 'running') {
+  if (['running', 'paused'].includes(res.data.status)) {
     pollStartedAt = Date.now()
     pollAttempts = 0
-    pollTimer = setTimeout(pollDialog, 3000)
+    pollTimer = setTimeout(pollDialog, res.data.status === 'paused' ? 10000 : 3000)
   }
 }
 

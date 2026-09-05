@@ -23,6 +23,7 @@ class TaskStatus(str, Enum):
     """任务状态枚举"""
     PENDING = "pending"          # 等待中
     PROCESSING = "processing"    # 处理中
+    PAUSED = "paused"            # 已暂停（等待用户恢复）
     COMPLETED = "completed"      # 已完成
     FAILED = "failed"            # 失败
     CANCELLED = "cancelled"
@@ -129,6 +130,7 @@ class TaskManager:
                     cls._instance = super().__new__(cls)
                     cls._instance._tasks: Dict[str, Task] = {}
                     cls._instance._cancel_events: Dict[str, threading.Event] = {}
+                    cls._instance._resume_events: Dict[str, threading.Event] = {}
                     cls._instance._task_lock = threading.Lock()
                     cls._instance._load_persisted()
         return cls._instance
@@ -196,6 +198,11 @@ class TaskManager:
                     metadata=record.get("metadata") or {}, progress_detail=record.get("progress_detail") or {},
                 )
                 self._cancel_events.setdefault(task_id, threading.Event())
+                resume_event = self._resume_events.setdefault(task_id, threading.Event())
+                if self._tasks[task_id].status == TaskStatus.PAUSED:
+                    resume_event.clear()
+                else:
+                    resume_event.set()
                 if self._tasks[task_id].status == TaskStatus.CANCELLED:
                     self._cancel_events[task_id].set()
             except (KeyError, ValueError, TypeError):
@@ -242,6 +249,8 @@ class TaskManager:
         with self._task_lock:
             self._tasks[task_id] = task
             self._cancel_events[task_id] = threading.Event()
+            self._resume_events[task_id] = threading.Event()
+            self._resume_events[task_id].set()
             self._persist_locked()
         
         return task_id
@@ -296,6 +305,10 @@ class TaskManager:
                     TaskStatus.COMPLETED,
                 }:
                     return False
+                if task.status == TaskStatus.PAUSED and status in {
+                    TaskStatus.PENDING, TaskStatus.PROCESSING,
+                }:
+                    return False
                 task.updated_at = datetime.now()
                 if status is not None:
                     task.status = status
@@ -335,8 +348,62 @@ class TaskManager:
             task.error_code = "task_cancelled"
             task.retryable = False
             self._cancel_events.setdefault(task_id, threading.Event()).set()
+            self._resume_events.setdefault(task_id, threading.Event()).set()
             self._persist_locked()
             return task
+
+    def pause_task(self, task_id: str, reason: str = "任务已暂停") -> Optional[Task]:
+        """Pause an active task at its next cooperative checkpoint."""
+        with self._task_lock:
+            task = self._tasks.get(task_id)
+            if not task:
+                return None
+            if task.status == TaskStatus.PAUSED:
+                return task
+            if task.status not in {TaskStatus.PENDING, TaskStatus.PROCESSING}:
+                return task
+            task.status = TaskStatus.PAUSED
+            task.updated_at = datetime.now()
+            task.message = reason
+            task.error = None
+            task.error_code = None
+            task.retryable = False
+            self._resume_events.setdefault(task_id, threading.Event()).clear()
+            self._persist_locked()
+            return task
+
+    def resume_task(self, task_id: str, reason: str = "任务已恢复") -> Optional[Task]:
+        """Resume a paused task at its next cooperative checkpoint."""
+        with self._task_lock:
+            task = self._tasks.get(task_id)
+            if not task:
+                return None
+            if task.status != TaskStatus.PAUSED:
+                return task
+            task.status = TaskStatus.PROCESSING
+            task.updated_at = datetime.now()
+            task.message = reason
+            self._resume_events.setdefault(task_id, threading.Event()).set()
+            self._persist_locked()
+            return task
+
+    def wait_if_paused(self, task_id: str, wait_seconds: float = 0.5) -> bool:
+        """Wait until resumed, or return False once the task is no longer runnable."""
+        while True:
+            with self._task_lock:
+                # A pause/resume request may be served by another worker
+                # process. Refresh the durable record before waiting again.
+                self._merge_persisted_locked()
+                task = self._tasks.get(task_id)
+                if not task:
+                    return False
+                if task.status == TaskStatus.PAUSED:
+                    resume_event = self._resume_events.setdefault(task_id, threading.Event())
+                elif task.status in {TaskStatus.CANCELLED, TaskStatus.STALE, TaskStatus.FAILED}:
+                    return False
+                else:
+                    return True
+            resume_event.wait(wait_seconds)
 
     def is_cancelled(self, task_id: str) -> bool:
         """Return whether a worker should stop at its next safe checkpoint."""
@@ -409,5 +476,6 @@ class TaskManager:
             for tid in old_ids:
                 del self._tasks[tid]
                 self._cancel_events.pop(tid, None)
+                self._resume_events.pop(tid, None)
             self._persist_locked()
 

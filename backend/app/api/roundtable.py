@@ -10,6 +10,7 @@ import threading
 import traceback
 import uuid
 import os
+import time
 
 from flask import jsonify, request
 
@@ -216,6 +217,13 @@ def open_roundtable():
                 dialog["error"] = "圆桌任务已取消"
                 RoundtableStore.save(dialog)
                 return
+            # Pause may arrive before this daemon thread starts. Honor it
+            # before publishing the processing state.
+            if not task_manager.wait_if_paused(task_id):
+                dialog["status"] = "failed"
+                dialog["error"] = "圆桌任务已取消"
+                RoundtableStore.save(dialog)
+                return
             task_manager.update_task(
                 task_id, status=TaskStatus.PROCESSING,
                 message="圆桌发言进行中", progress=10,
@@ -224,6 +232,13 @@ def open_roundtable():
             def progress_callback(stage, speech):
                 if task_manager.is_cancelled(task_id):
                     raise RuntimeError("圆桌任务已取消")
+                if stage == "checkpoint":
+                    if not task_manager.wait_if_paused(task_id):
+                        raise RuntimeError("圆桌任务已取消")
+                    if dialog.get("status") == "paused":
+                        dialog["status"] = "running"
+                        RoundtableStore.save(dialog)
+                    return
                 if stage == "speech" and speech:
                     RoundtableStore.save(dialog)
                     done = len(dialog.get("transcript") or [])
@@ -243,6 +258,12 @@ def open_roundtable():
 
             engine = RoundtableEngine()
             engine.run_roundtable(dialog, model, progress_callback=progress_callback)
+
+            if not task_manager.wait_if_paused(task_id):
+                dialog["status"] = "failed"
+                dialog["error"] = "圆桌任务已取消"
+                RoundtableStore.save(dialog)
+                return
 
             if task_manager.is_cancelled(task_id):
                 dialog["status"] = "failed"
@@ -290,14 +311,83 @@ def get_dialog(dialog_id: str):
             return error
     if not dialog:
         return jsonify({"success": False, "error": f"圆桌记录不存在: {dialog_id}"}), 404
-    if dialog.get("status") == "running" and dialog.get("task_id"):
+    if dialog.get("task_id"):
         task = TaskManager().get_task(dialog["task_id"])
-        if task and task.status in {TaskStatus.STALE, TaskStatus.FAILED, TaskStatus.CANCELLED}:
+        if task and task.status == TaskStatus.PAUSED:
+            if dialog.get("status") != "paused":
+                dialog["status"] = "paused"
+                RoundtableStore.save(dialog)
+        elif task and task.status in {TaskStatus.PENDING, TaskStatus.PROCESSING}:
+            if dialog.get("status") == "paused":
+                dialog["status"] = "running"
+                RoundtableStore.save(dialog)
+        elif task and task.status in {TaskStatus.STALE, TaskStatus.FAILED, TaskStatus.CANCELLED}:
             dialog["status"] = "failed"
             public_task = task.to_dict()
             dialog["error"] = public_task.get("error") or public_task.get("message") or "圆桌任务已失效"
             RoundtableStore.save(dialog)
     return jsonify({"success": True, "data": dialog})
+
+
+def _control_roundtable_task(dialog_id: str, action: str):
+    """Apply a pause/resume request to one roundtable task."""
+    data = request.get_json(silent=True) or {}
+    project_id = data.get("project_id") or request.args.get("project_id")
+    if project_id:
+        dialog = RoundtableStore.get(project_id, dialog_id)
+    else:
+        dialog, error = _load_dialog(dialog_id)
+        if error:
+            return error
+    if not dialog:
+        return jsonify({"success": False, "error": f"圆桌记录不存在: {dialog_id}"}), 404
+
+    task_id = dialog.get("task_id")
+    task_manager = TaskManager()
+    task = task_manager.get_task(task_id) if task_id else None
+    if not task:
+        return jsonify({
+            "success": False,
+            "code": "roundtable_task_not_found",
+            "error": t('api.roundtableTaskNotFound'),
+        }), 404
+    if (task.metadata or {}).get("kind") != "roundtable":
+        return jsonify({
+            "success": False,
+            "code": "roundtable_pause_unsupported",
+            "error": t('api.roundtablePauseUnsupported'),
+        }), 409
+    if task.status in {TaskStatus.COMPLETED, TaskStatus.FAILED, TaskStatus.STALE, TaskStatus.CANCELLED}:
+        return jsonify({
+            "success": False,
+            "code": "roundtable_task_not_active",
+            "error": t('api.roundtableTaskNotActive'),
+        }), 409
+
+    if action == "pause":
+        task = task_manager.pause_task(task_id, t('progress.roundtablePaused'))
+        if task and task.status == TaskStatus.PAUSED:
+            dialog["status"] = "paused"
+            dialog["pause_requested_at"] = dialog.get("pause_requested_at") or time.strftime("%Y-%m-%dT%H:%M:%S")
+    else:
+        task = task_manager.resume_task(task_id, t('progress.roundtableResumed'))
+        if task and task.status in {TaskStatus.PENDING, TaskStatus.PROCESSING}:
+            dialog["status"] = "running"
+            dialog.pop("pause_requested_at", None)
+    RoundtableStore.save(dialog)
+    return jsonify({"success": True, "data": {"dialog": dialog, "task": task.to_dict()}})
+
+
+@roundtable_bp.route('/<dialog_id>/pause', methods=['POST'])
+def pause_dialog(dialog_id: str):
+    """Pause a running roundtable at the next model-call checkpoint."""
+    return _control_roundtable_task(dialog_id, "pause")
+
+
+@roundtable_bp.route('/<dialog_id>/resume', methods=['POST'])
+def resume_dialog(dialog_id: str):
+    """Resume a paused roundtable."""
+    return _control_roundtable_task(dialog_id, "resume")
 
 
 @roundtable_bp.route('/list/<project_id>', methods=['GET'])

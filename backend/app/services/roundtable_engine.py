@@ -505,6 +505,11 @@ class RoundtableEngine:
             if progress_callback:
                 progress_callback("speech", speech)
 
+        def checkpoint():
+            """Give the task owner a safe boundary between model calls."""
+            if progress_callback:
+                progress_callback("checkpoint", None)
+
         # 关系人对各宇宙的基本认知摘要
         universe_summaries = []
         for p in dialog["participants"]:
@@ -541,6 +546,7 @@ class RoundtableEngine:
                 current_mem = participant_core_memories.get(p["session_id"]) or LettaCoreMemoryManager.init_universe_core_memory(session, personal_model)
                 mem_formatted = LettaCoreMemoryManager.format_core_memory_block(current_mem)
 
+                checkpoint()
                 raw_res = _chat_with_roundtable_deadline(
                     self.llm,
                     messages=[
@@ -624,6 +630,7 @@ class RoundtableEngine:
                 current_mem = participant_core_memories.get(p["person_ref"]) or LettaCoreMemoryManager.init_related_core_memory(card, personal_model)
                 mem_formatted = LettaCoreMemoryManager.format_core_memory_block(current_mem)
 
+                checkpoint()
                 raw_res = _chat_with_roundtable_deadline(
                     self.llm,
                     messages=[
@@ -674,6 +681,8 @@ class RoundtableEngine:
         # 3) 主持人审计 (基于全轮次发言实录)
         if progress_callback:
             progress_callback("moderate", None)
+
+        checkpoint()
 
         ledger_lines = []
         for p in dialog["participants"]:

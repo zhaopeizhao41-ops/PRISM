@@ -71,3 +71,21 @@ export function interjectRoundtableSpeech(dialogId, data) {
     data
   })
 }
+
+/** Pause a running roundtable at the next safe model-call boundary. */
+export function pauseRoundtable(dialogId, projectId) {
+  return service({
+    url: `/api/roundtable/${dialogId}/pause`,
+    method: 'post',
+    data: projectId ? { project_id: projectId } : undefined
+  })
+}
+
+/** Resume a paused roundtable. */
+export function resumeRoundtable(dialogId, projectId) {
+  return service({
+    url: `/api/roundtable/${dialogId}/resume`,
+    method: 'post',
+    data: projectId ? { project_id: projectId } : undefined
+  })
+}

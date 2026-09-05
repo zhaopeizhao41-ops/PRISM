@@ -172,6 +172,8 @@ def test_run_roundtable_order_and_moderation(monkeypatch, sessions, card):
     assert [s["speaker_type"] for s in transcript] == ["universe", "universe", "related"]
     assert transcript[0]["ref"] == "s_shallow"
     assert "观望" in transcript[0]["content"]
+    # Every model call is preceded by a cooperative pause/cancel checkpoint.
+    assert speeches_seen.count("checkpoint") == 4
     # 最后一次 LLM 调用是主持人（expect_json=True）
     assert calls[-1]["expect_json"] is True
 

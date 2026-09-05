@@ -100,13 +100,31 @@
               </div>
               <span class="task-progress-value">{{ task.progress || 0 }}%</span>
               <button
-                v-if="['pending', 'processing'].includes(task.status)"
+                v-if="['pending', 'processing', 'paused'].includes(task.status)"
                 class="task-cancel-btn"
                 type="button"
                 :disabled="cancellingTaskId === task.task_id"
                 @click="cancelProjectTask(task.task_id)"
               >
                 {{ cancellingTaskId === task.task_id ? t('workbench.taskCenter.cancelling') : t('workbench.taskCenter.cancel') }}
+              </button>
+              <button
+                v-if="task.metadata?.kind === 'roundtable' && ['pending', 'processing'].includes(task.status)"
+                class="task-control-btn"
+                type="button"
+                :disabled="controllingTaskId === task.task_id"
+                @click="pauseProjectTask(task)"
+              >
+                {{ controllingTaskId === task.task_id ? t('workbench.taskCenter.pausing') : t('workbench.taskCenter.pause') }}
+              </button>
+              <button
+                v-if="task.metadata?.kind === 'roundtable' && task.status === 'paused'"
+                class="task-control-btn primary"
+                type="button"
+                :disabled="controllingTaskId === task.task_id"
+                @click="resumeProjectTask(task)"
+              >
+                {{ controllingTaskId === task.task_id ? t('workbench.taskCenter.resuming') : t('workbench.taskCenter.resume') }}
               </button>
               <button
                 v-if="taskRecoveryPath(task)"
@@ -477,7 +495,7 @@ import ActionExperiments from '../components/ActionExperiments.vue'
 import { getProject, getGraphData, listProjectTasks, cancelTask } from '../api/graph'
 import { getPersonalModel, getProfileProjects } from '../api/profile'
 import { getBranches } from '../api/branch'
-import { listRoundtables } from '../api/roundtable'
+import { listRoundtables, pauseRoundtable, resumeRoundtable } from '../api/roundtable'
 import {
   listEvolutionSessions,
   getEvolutionSession,
@@ -518,6 +536,7 @@ const roundtables = ref([])
 const sessions = ref([])
 const projectTasks = ref([])
 const cancellingTaskId = ref('')
+const controllingTaskId = ref('')
 let taskPollTimer = null
 const activeSessionId = ref('')
 const activeSession = ref(null)
@@ -598,7 +617,7 @@ function riskTopicLabel(key) {
 }
 
 const hasActiveProjectTasks = computed(() => projectTasks.value.some(task =>
-  task && ['pending', 'processing'].includes(task.status)
+  task && ['pending', 'processing', 'paused'].includes(task.status)
 ))
 
 function taskStatusLabel(status) {
@@ -613,8 +632,12 @@ function taskName(task) {
 }
 
 function taskRecoveryPath(task) {
-  if (!task || !['failed', 'stale'].includes(task.status)) return ''
+  if (!task) return ''
   const kind = task.metadata?.kind
+  if (task.status === 'paused' && kind === 'roundtable') {
+    return `/roundtable/${encodeURIComponent(props.projectId)}?dialog=${encodeURIComponent(task.metadata?.dialog_id || '')}`
+  }
+  if (!['failed', 'stale'].includes(task.status)) return ''
   if (['profile_graph', 'graph_build'].includes(kind)) {
     return `/profile/create?project=${encodeURIComponent(props.projectId)}`
   }
@@ -644,6 +667,36 @@ async function cancelProjectTask(taskId) {
     console.error('Failed to cancel task', e)
   } finally {
     cancellingTaskId.value = ''
+  }
+}
+
+async function pauseProjectTask(task) {
+  if (!task?.task_id || controllingTaskId.value || !task.metadata?.dialog_id) return
+  controllingTaskId.value = task.task_id
+  try {
+    const res = await pauseRoundtable(task.metadata.dialog_id, props.projectId)
+    const updated = res.data?.task
+    const index = projectTasks.value.findIndex(item => item.task_id === task.task_id)
+    if (index >= 0 && updated) projectTasks.value[index] = updated
+  } catch (e) {
+    console.error('Failed to pause roundtable', e)
+  } finally {
+    controllingTaskId.value = ''
+  }
+}
+
+async function resumeProjectTask(task) {
+  if (!task?.task_id || controllingTaskId.value || !task.metadata?.dialog_id) return
+  controllingTaskId.value = task.task_id
+  try {
+    const res = await resumeRoundtable(task.metadata.dialog_id, props.projectId)
+    const updated = res.data?.task
+    const index = projectTasks.value.findIndex(item => item.task_id === task.task_id)
+    if (index >= 0 && updated) projectTasks.value[index] = updated
+  } catch (e) {
+    console.error('Failed to resume roundtable', e)
+  } finally {
+    controllingTaskId.value = ''
   }
 }
 
@@ -1547,6 +1600,28 @@ onBeforeUnmount(stopTaskPolling)
 }
 
 .task-cancel-btn:disabled {
+  cursor: wait;
+  opacity: 0.55;
+}
+
+.task-control-btn {
+  flex: 0 0 auto;
+  border: 1px solid var(--c-line-strong);
+  background: var(--c-paper);
+  color: var(--c-ink-3);
+  padding: 3px 8px;
+  font-family: inherit;
+  font-size: 11px;
+  cursor: pointer;
+}
+
+.task-control-btn:hover:not(:disabled),
+.task-control-btn.primary {
+  border-color: var(--c-brand);
+  color: var(--c-brand);
+}
+
+.task-control-btn:disabled {
   cursor: wait;
   opacity: 0.55;
 }
