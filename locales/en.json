@@ -634,9 +634,24 @@
       "hint": "Status persists after refresh",
       "cancel": "Cancel",
       "cancelling": "Cancelling…",
+      "recover": "Back to workflow",
+      "retryableHint": "Return to the workflow to submit it again.",
+      "manualRecoveryHint": "Check the configuration, then return to the workflow.",
+      "updatedAt": "Updated {time}",
+      "unknown": "Background task",
+      "types": {
+        "graph_build": "Build graph",
+        "profile_graph": "Build personal graph",
+        "profile_model": "Synthesize profile",
+        "literary_analysis": "Literary analysis",
+        "branch_generation": "Generate life branches",
+        "relationship_generation": "Generate relationship profiles",
+        "roundtable": "Run roundtable"
+      },
       "status": {
         "pending": "Queued",
         "processing": "Processing",
+        "completed": "Completed",
         "failed": "Failed",
         "stale": "Expired",
         "cancelled": "Cancelled"

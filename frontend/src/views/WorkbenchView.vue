@@ -79,7 +79,7 @@
           <div v-for="task in taskCenterItems" :key="task.task_id" class="task-row" :class="`task-${task.status}`">
             <div class="task-row-main">
               <span class="task-status-dot" aria-hidden="true"></span>
-              <span class="task-name">{{ task.task_type }}</span>
+              <span class="task-name">{{ taskName(task) }}</span>
               <span class="task-status">{{ taskStatusLabel(task.status) }}</span>
             </div>
             <div class="task-row-meta">
@@ -96,8 +96,22 @@
               >
                 {{ cancellingTaskId === task.task_id ? t('workbench.taskCenter.cancelling') : t('workbench.taskCenter.cancel') }}
               </button>
+              <button
+                v-if="taskRecoveryPath(task)"
+                class="task-recovery-btn"
+                type="button"
+                @click="router.push(taskRecoveryPath(task))"
+              >
+                {{ t('workbench.taskCenter.recover') }}
+              </button>
             </div>
             <p v-if="task.message || task.error" class="task-message">{{ task.message || task.error }}</p>
+            <p v-if="['failed', 'stale'].includes(task.status)" class="task-recovery-hint">
+              {{ task.retryable ? t('workbench.taskCenter.retryableHint') : t('workbench.taskCenter.manualRecoveryHint') }}
+            </p>
+            <time v-if="task.updated_at" class="task-updated" :datetime="task.updated_at">
+              {{ formatTaskUpdatedAt(task.updated_at) }}
+            </time>
           </div>
         </section>
 
@@ -522,8 +536,8 @@ const evolvingCount = computed(() =>
 )
 
 const taskCenterItems = computed(() => projectTasks.value
-  .filter(task => task && task.status !== 'completed')
-  .slice(0, 5))
+  .filter(task => task)
+  .slice(0, 8))
 
 const hasDecisionContext = computed(() => Boolean(
   decisionContext.value.question
@@ -566,6 +580,32 @@ const hasActiveProjectTasks = computed(() => projectTasks.value.some(task =>
 function taskStatusLabel(status) {
   const key = `workbench.taskCenter.status.${status}`
   return te(key) ? t(key) : status
+}
+
+function taskName(task) {
+  const kind = task?.metadata?.kind
+  const key = `workbench.taskCenter.types.${kind}`
+  return te(key) ? t(key) : (task?.task_type || t('workbench.taskCenter.unknown'))
+}
+
+function taskRecoveryPath(task) {
+  if (!task || !['failed', 'stale'].includes(task.status)) return ''
+  const kind = task.metadata?.kind
+  if (['profile_graph', 'graph_build'].includes(kind)) {
+    return `/profile/create?project=${encodeURIComponent(props.projectId)}`
+  }
+  if (kind === 'literary_analysis') return `/profile/${encodeURIComponent(props.projectId)}?scope=literary`
+  if (kind === 'profile_model') return `/profile/${encodeURIComponent(props.projectId)}`
+  if (kind === 'branch_generation') return `/branches/${encodeURIComponent(props.projectId)}`
+  if (kind === 'relationship_generation') return `/profile/${encodeURIComponent(props.projectId)}`
+  if (kind === 'roundtable') return `/roundtable/${encodeURIComponent(props.projectId)}`
+  return ''
+}
+
+function formatTaskUpdatedAt(value) {
+  const date = new Date(value)
+  if (Number.isNaN(date.getTime())) return ''
+  return t('workbench.taskCenter.updatedAt', { time: date.toLocaleString() })
 }
 
 async function cancelProjectTask(taskId) {
@@ -1359,6 +1399,10 @@ onBeforeUnmount(stopTaskPolling)
   background: var(--c-ink-4);
 }
 
+.task-completed .task-status-dot {
+  background: var(--a-conservative);
+}
+
 .task-name {
   min-width: 0;
   overflow: hidden;
@@ -1420,12 +1464,37 @@ onBeforeUnmount(stopTaskPolling)
   opacity: 0.55;
 }
 
+.task-recovery-btn {
+  flex: 0 0 auto;
+  border: 1px solid var(--c-brand);
+  background: var(--c-paper);
+  color: var(--c-brand);
+  padding: 3px 8px;
+  font-family: inherit;
+  font-size: 11px;
+  cursor: pointer;
+}
+
+.task-recovery-btn:hover {
+  background: var(--c-brand);
+  color: var(--c-paper);
+}
+
 .task-message {
   margin: 6px 0 0 15px;
   color: var(--c-ink-4);
   font-size: 11px;
   line-height: 1.45;
   overflow-wrap: anywhere;
+}
+
+.task-recovery-hint,
+.task-updated {
+  display: block;
+  margin: 4px 0 0 15px;
+  color: var(--c-ink-4);
+  font-size: 10px;
+  line-height: 1.4;
 }
 
 .header-actions {

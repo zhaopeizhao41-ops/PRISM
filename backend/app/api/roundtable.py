@@ -294,7 +294,8 @@ def get_dialog(dialog_id: str):
         task = TaskManager().get_task(dialog["task_id"])
         if task and task.status in {TaskStatus.STALE, TaskStatus.FAILED, TaskStatus.CANCELLED}:
             dialog["status"] = "failed"
-            dialog["error"] = task.error or task.message or "圆桌任务已失效"
+            public_task = task.to_dict()
+            dialog["error"] = public_task.get("error") or public_task.get("message") or "圆桌任务已失效"
             RoundtableStore.save(dialog)
     return jsonify({"success": True, "data": dialog})
 

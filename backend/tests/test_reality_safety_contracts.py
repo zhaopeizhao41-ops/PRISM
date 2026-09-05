@@ -124,6 +124,53 @@ def test_task_listing_filters_by_project_metadata():
             manager._persist_locked()
 
 
+def test_task_public_contract_redacts_tracebacks_and_classifies_errors():
+    manager = TaskManager()
+    task_id = manager.create_task(
+        "模型任务",
+        metadata={"project_id": f"task-contract-{uuid.uuid4().hex}", "kind": "profile_model"},
+    )
+    try:
+        updated = manager.update_task(
+            task_id,
+            status=TaskStatus.FAILED,
+            message="画像合成失败: provider request failed",
+            error=(
+                "Traceback (most recent call last):\n"
+                "  File '/srv/prism/app.py', line 12, in run\n"
+                "ValueError: provider request failed with sk-test-secret-key"
+            ),
+        )
+        assert updated is True
+        payload = manager.get_task(task_id).to_dict()
+        assert "Traceback" not in payload["error"]
+        assert "/srv/prism" not in payload["error"]
+        assert "sk-test-secret-key" not in payload["error"]
+        assert payload["error_code"] == "task_failed"
+        assert payload["retryable"] is True
+    finally:
+        with manager._task_lock:
+            manager._tasks.pop(task_id, None)
+            manager._cancel_events.pop(task_id, None)
+            manager._persist_locked()
+
+
+def test_task_configuration_failure_is_not_marked_retryable():
+    manager = TaskManager()
+    task_id = manager.create_task("画像任务")
+    try:
+        manager.fail_task(task_id, "ValueError: LLM_API_KEY 未配置")
+        payload = manager.get_task(task_id).to_dict()
+        assert payload["error_code"] == "configuration_error"
+        assert payload["retryable"] is False
+        assert payload["error"] == "ValueError: LLM_API_KEY 未配置"
+    finally:
+        with manager._task_lock:
+            manager._tasks.pop(task_id, None)
+            manager._cancel_events.pop(task_id, None)
+            manager._persist_locked()
+
+
 def test_comparison_realism_summary_preserves_known_values_and_omits_invalid_values():
     summary = _comparison_realism({
         "health_score": 72,

@@ -8,6 +8,7 @@ import threading
 import json
 import os
 import tempfile
+import re
 from contextlib import contextmanager
 from datetime import datetime, timedelta
 from enum import Enum
@@ -28,6 +29,53 @@ class TaskStatus(str, Enum):
     STALE = "stale"
 
 
+_SECRET_PATTERNS = (
+    (re.compile(r"(?i)(bearer\s+)[^\s,;]+"), r"\1[redacted]"),
+    (re.compile(r"(?i)\b(sk-[A-Za-z0-9_-]{12,}|key-[A-Za-z0-9_-]{12,})\b"), "[redacted]"),
+    (re.compile(r"(?i)(api[_ -]?key\s*[:=]\s*)[^\s,;]+"), r"\1[redacted]"),
+)
+
+
+def _safe_error_message(value: Any) -> Optional[str]:
+    """Return a short, non-traceback error suitable for API responses."""
+    if value is None:
+        return None
+    lines = [line.strip() for line in str(value).splitlines() if line.strip()]
+    if not lines:
+        return None
+    # Exception tracebacks are useful in logs but disclose paths and internals
+    # when copied into a browser response. The final exception line is the
+    # most useful short summary.
+    message = lines[-1] if len(lines) > 1 else lines[0]
+    for pattern, replacement in _SECRET_PATTERNS:
+        message = pattern.sub(replacement, message)
+    return message[:240]
+
+
+def _error_contract(value: Any, status: Optional[TaskStatus] = None) -> tuple[str, bool]:
+    """Map common failures to a stable code and conservative retry hint."""
+    raw = str(value or "").lower()
+    if status == TaskStatus.CANCELLED or "cancel" in raw or "取消" in raw:
+        return "task_cancelled", False
+    if status == TaskStatus.STALE or "stale" in raw or "过期" in raw or "重启" in raw:
+        return "task_stale", True
+    if any(token in raw for token in ("api key", "apikey", "未配置", "配置错误", "密钥")):
+        return "configuration_error", False
+    if any(token in raw for token in (
+        "timeout", "timed out", "超时", "rate limit", "429", "502", "503",
+        "504", "connection", "连接", "temporarily", "繁忙",
+    )):
+        return "external_service_unavailable", True
+    return "task_failed", True
+
+
+def _public_task_message(value: Any, status: TaskStatus) -> str:
+    """Keep terminal task messages readable without exposing traceback data."""
+    if status in {TaskStatus.FAILED, TaskStatus.STALE, TaskStatus.CANCELLED}:
+        return _safe_error_message(value) or "任务未完成"
+    return str(value or "")
+
+
 @dataclass
 class Task:
     """任务数据类"""
@@ -42,6 +90,8 @@ class Task:
     error: Optional[str] = None    # 错误信息
     metadata: Dict = field(default_factory=dict)  # 额外元数据
     progress_detail: Dict = field(default_factory=dict)  # 详细进度信息
+    error_code: Optional[str] = None  # 稳定错误码，不含实现细节
+    retryable: bool = False        # 是否适合用户重新发起同类任务
     
     def to_dict(self) -> Dict[str, Any]:
         """转换为字典"""
@@ -52,10 +102,12 @@ class Task:
             "created_at": self.created_at.isoformat(),
             "updated_at": self.updated_at.isoformat(),
             "progress": self.progress,
-            "message": self.message,
+            "message": _public_task_message(self.message, self.status),
             "progress_detail": self.progress_detail,
             "result": self.result,
-            "error": self.error,
+            "error": _safe_error_message(self.error),
+            "error_code": self.error_code,
+            "retryable": self.retryable,
             "metadata": self.metadata,
         }
 
@@ -138,7 +190,9 @@ class TaskManager:
                     created_at=datetime.fromisoformat(record["created_at"]),
                     updated_at=disk_updated,
                     progress=record.get("progress", 0), message=record.get("message", ""),
-                    result=record.get("result"), error=record.get("error"),
+                    result=record.get("result"), error=_safe_error_message(record.get("error")),
+                    error_code=record.get("error_code"),
+                    retryable=bool(record.get("retryable", False)),
                     metadata=record.get("metadata") or {}, progress_detail=record.get("progress_detail") or {},
                 )
                 self._cancel_events.setdefault(task_id, threading.Event())
@@ -201,6 +255,8 @@ class TaskManager:
                     task.status = TaskStatus.STALE
                     task.message = "任务超过心跳期限"
                     task.error = "stale task"
+                    task.error_code = "task_stale"
+                    task.retryable = True
                     self._persist_locked()
             return task
     
@@ -212,7 +268,9 @@ class TaskManager:
         message: Optional[str] = None,
         result: Optional[Dict] = None,
         error: Optional[str] = None,
-        progress_detail: Optional[Dict] = None
+        progress_detail: Optional[Dict] = None,
+        error_code: Optional[str] = None,
+        retryable: Optional[bool] = None,
     ):
         """
         更新任务状态
@@ -248,7 +306,14 @@ class TaskManager:
                 if result is not None:
                     task.result = result
                 if error is not None:
-                    task.error = error
+                    task.error = _safe_error_message(error)
+                    inferred_code, inferred_retryable = _error_contract(error, status)
+                    task.error_code = error_code or inferred_code
+                    task.retryable = inferred_retryable if retryable is None else bool(retryable)
+                elif error_code is not None:
+                    task.error_code = error_code
+                    if retryable is not None:
+                        task.retryable = bool(retryable)
                 if progress_detail is not None:
                     task.progress_detail = progress_detail
                 self._persist_locked()
@@ -267,6 +332,8 @@ class TaskManager:
             task.updated_at = datetime.now()
             task.message = reason
             task.error = reason
+            task.error_code = "task_cancelled"
+            task.retryable = False
             self._cancel_events.setdefault(task_id, threading.Event()).set()
             self._persist_locked()
             return task
@@ -287,6 +354,8 @@ class TaskManager:
                     task.status = TaskStatus.STALE
                     task.message = "服务重启后任务未恢复"
                     task.error = "interrupted task"
+                    task.error_code = "task_stale"
+                    task.retryable = True
                     recovered += 1
             if recovered:
                 self._persist_locked()

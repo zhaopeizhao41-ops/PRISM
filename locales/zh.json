@@ -634,9 +634,24 @@
       "hint": "状态会在刷新后保留",
       "cancel": "取消",
       "cancelling": "取消中…",
+      "recover": "回到流程",
+      "retryableHint": "可以回到对应流程重新提交。",
+      "manualRecoveryHint": "请检查配置后回到对应流程。",
+      "updatedAt": "更新于 {time}",
+      "unknown": "后台任务",
+      "types": {
+        "graph_build": "构建图谱",
+        "profile_graph": "构建个人图谱",
+        "profile_model": "合成个人画像",
+        "literary_analysis": "文学分析",
+        "branch_generation": "生成人生分支",
+        "relationship_generation": "生成关系人画像",
+        "roundtable": "运行圆桌"
+      },
       "status": {
         "pending": "排队中",
         "processing": "处理中",
+        "completed": "已完成",
         "failed": "失败",
         "stale": "已过期",
         "cancelled": "已取消"
