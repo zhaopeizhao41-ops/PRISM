@@ -117,6 +117,7 @@ def generate_branches():
                 personal_model=model,
                 branch_count=branch_count,
                 progress_callback=progress_callback,
+                decision_context=project.decision_context,
             )
             if task_manager.is_cancelled(task_id):
                 return

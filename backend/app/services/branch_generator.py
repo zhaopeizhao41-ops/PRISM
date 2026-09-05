@@ -106,7 +106,10 @@ STEP1_PROMPT = """基于以下个人画像，从 5 个方向原型中选取 {bra
 
 个人画像：
 
-{model_json}"""
+{model_json}
+
+用户当前希望探索的决策上下文：
+{decision_context}"""
 
 STEP2_PROMPT = """基于以下个人画像与已确定的分支方向，展开这个分支的完整推演。
 
@@ -149,7 +152,10 @@ STEP2_PROMPT = """基于以下个人画像与已确定的分支方向，展开�
 
 个人画像：
 
-{model_json}"""
+{model_json}
+
+用户当前希望探索的决策上下文：
+{decision_context}"""
 
 
 class BranchGenerator:
@@ -163,6 +169,7 @@ class BranchGenerator:
         personal_model: Dict[str, Any],
         branch_count: int = 5,
         progress_callback=None,
+        decision_context: Optional[Dict[str, str]] = None,
     ) -> Dict[str, Any]:
         """
         两步法生成分支集合。
@@ -171,6 +178,7 @@ class BranchGenerator:
             personal_model: 完整个人模型（PersonalModelStore.get_current 的产出）
             branch_count: 分支数（3-5）
             progress_callback: (stage, message) 回调
+            decision_context: 用户要探索的问题、时间范围和不可妥协条件
         """
         branch_count = max(3, min(5, int(branch_count)))
 
@@ -190,6 +198,13 @@ class BranchGenerator:
             )
         }
         model_json = json.dumps(model_slim, ensure_ascii=False)
+        raw_context = decision_context if isinstance(decision_context, dict) else {}
+        context = {
+            "question": str(raw_context.get("question") or "").strip(),
+            "horizon": str(raw_context.get("horizon") or "").strip(),
+            "constraints": str(raw_context.get("constraints") or "").strip(),
+        }
+        decision_context_json = json.dumps(context, ensure_ascii=False)
 
         # 步骤1：方向穷举
         report("directions", f"论证 {branch_count} 个分支方向")
@@ -202,6 +217,7 @@ class BranchGenerator:
                     branch_count=branch_count,
                     archetypes=archetypes_text,
                     model_json=model_json,
+                    decision_context=decision_context_json,
                 )},
             ],
             max_tokens=2048,
@@ -231,6 +247,7 @@ class BranchGenerator:
                         positioning=direction.get("positioning", ""),
                         rationale=direction.get("rationale", ""),
                         model_json=model_json,
+                        decision_context=decision_context_json,
                     )},
                 ],
                 max_tokens=3000,
@@ -269,4 +286,5 @@ class BranchGenerator:
             "branch_count": len(branches),
             "source_model_version": personal_model.get("model_version"),
             "source_content_hash": personal_model.get("content_hash"),
+            "decision_context": context,
         }

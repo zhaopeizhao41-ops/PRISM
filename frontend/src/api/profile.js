@@ -128,6 +128,27 @@ export function createDemoProject() {
   })
 }
 
+/**
+ * 获取项目的决策上下文（问题、时间范围和不可妥协条件）。
+ */
+export function getDecisionContext(projectId) {
+  return service({
+    url: `/api/profile/decision-context/${projectId}`,
+    method: 'get'
+  })
+}
+
+/**
+ * 更新项目的决策上下文。
+ */
+export function updateDecisionContext(projectId, data) {
+  return service({
+    url: `/api/profile/decision-context/${projectId}`,
+    method: 'patch',
+    data
+  })
+}
+
 export function comparePersonalModelVersions(projectId, fromVersion, toVersion) {
   return service({
     url: `/api/profile/model/compare/${projectId}`,

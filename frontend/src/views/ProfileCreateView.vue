@@ -31,6 +31,48 @@
         <p class="page-desc">{{ t('profile.create.subtitle') }}</p>
       </header>
 
+      <!-- 00. 决策上下文：先明确希望探索的问题，再补充个人资料 -->
+      <section class="form-card decision-card">
+        <div class="card-header">
+          <span class="card-num">00</span>
+          <span class="card-title">{{ t('profile.create.secDecision') }}</span>
+          <span class="card-hint">{{ t('profile.create.decisionOptional') }}</span>
+        </div>
+        <p class="decision-hint">{{ t('profile.create.decisionHint') }}</p>
+        <div class="field">
+          <label for="decision-question">{{ t('profile.create.fDecisionQuestion') }}</label>
+          <textarea
+            id="decision-question"
+            v-model="decisionContext.question"
+            rows="2"
+            maxlength="500"
+            :placeholder="t('profile.create.phDecisionQuestion')"
+          ></textarea>
+          <span class="field-counter">{{ decisionContext.question.length }}/500</span>
+        </div>
+        <div class="field-grid decision-grid">
+          <div class="field">
+            <label for="decision-horizon">{{ t('profile.create.fDecisionHorizon') }}</label>
+            <select id="decision-horizon" v-model="decisionContext.horizon">
+              <option value="">{{ t('profile.create.phDecisionHorizon') }}</option>
+              <option v-for="option in decisionHorizonOptions" :key="option" :value="option">
+                {{ t(`profile.create.decisionHorizonOptions.${option}`) }}
+              </option>
+            </select>
+          </div>
+          <div class="field">
+            <label for="decision-constraints">{{ t('profile.create.fDecisionConstraints') }}</label>
+            <textarea
+              id="decision-constraints"
+              v-model="decisionContext.constraints"
+              rows="2"
+              maxlength="1000"
+              :placeholder="t('profile.create.phDecisionConstraints')"
+            ></textarea>
+          </div>
+        </div>
+      </section>
+
       <!-- A. 基本盘 -->
       <section class="form-card">
         <div class="card-header">
@@ -391,7 +433,9 @@ import {
   generatePersonalModel,
   getGenerateStatus,
   getProjectPrivacy,
-  updateProjectPrivacy
+  updateProjectPrivacy,
+  getDecisionContext,
+  updateDecisionContext
 } from '../api/profile'
 
 const router = useRouter()
@@ -455,6 +499,12 @@ const isDragOver = ref(false)
 const fileInput = ref(null)
 const existingMaterials = ref([])
 const cloudConsent = ref(false)
+const decisionHorizonOptions = ['three_months', 'one_year', 'three_years', 'unspecified']
+const decisionContext = reactive({
+  question: '',
+  horizon: '',
+  constraints: ''
+})
 
 const form = reactive({
   nickname: '',
@@ -519,6 +569,14 @@ function buildFormPayload() {
   if (relations.length) payload.important_relations = relations
   if (form.social_support) payload.social_support = form.social_support
   return payload
+}
+
+function buildDecisionContext() {
+  return {
+    question: decisionContext.question.trim(),
+    horizon: decisionContext.horizon,
+    constraints: decisionContext.constraints.trim()
+  }
 }
 
 const hasFormInput = computed(() => Object.keys(buildFormPayload()).length > 0)
@@ -607,6 +665,7 @@ function saveDraft() {
         materialType: materialType.value,
         materialMode: materialMode.value,
         timeRange: timeRange.value,
+        decisionContext: buildDecisionContext(),
         customTags: [...customTags.value],
         big5Enabled: big5Enabled.value,
         cloudConsent: cloudConsent.value,
@@ -641,6 +700,12 @@ function loadDraft() {
     if (data.materialType) materialType.value = data.materialType
     if (data.materialMode) materialMode.value = data.materialMode
     if (data.timeRange) timeRange.value = data.timeRange
+    if (data.decisionContext && typeof data.decisionContext === 'object') {
+      decisionContext.question = String(data.decisionContext.question || '')
+      decisionContext.horizon = String(data.decisionContext.horizon || '')
+      decisionContext.constraints = String(data.decisionContext.constraints || '')
+      if (decisionContext.question || decisionContext.horizon || decisionContext.constraints) hasContent = true
+    }
     if (data.customTags?.length) {
       customTags.value = data.customTags
       hasContent = true
@@ -681,13 +746,16 @@ function resetForm() {
   form.current_blocker = ''
   form.want_to_avoid = ''
   pastedText.value = ''
+  decisionContext.question = ''
+  decisionContext.horizon = ''
+  decisionContext.constraints = ''
   customTags.value = []
   big5Enabled.value = false
   cloudConsent.value = false
 }
 
 watch(
-  [() => form, pastedText, materialType, materialMode, timeRange, customTags, big5Enabled],
+  [() => form, pastedText, materialType, materialMode, timeRange, decisionContext, customTags, big5Enabled],
   () => {
     saveDraft()
   },
@@ -745,12 +813,14 @@ async function handleGenerate() {
       const res = await createProfileProject({
         name: form.nickname || 'Personal Profile',
         cloud_processing_consent: cloudConsent.value,
+        decision_context: buildDecisionContext(),
       })
       projectId.value = res.data.project_id
     } else if (!cloudConsent.value) {
       throw new Error(t('profile.create.cloudConsentRequired'))
     } else {
       await updateProjectPrivacy(projectId.value, { cloud_processing_consent: true })
+      await updateDecisionContext(projectId.value, buildDecisionContext())
     }
 
     // 2. 提交量化表单
@@ -826,6 +896,10 @@ onMounted(async () => {
       existingMaterials.value = res.data.materials || []
       const privacy = await getProjectPrivacy(projectId.value)
       cloudConsent.value = privacy.data?.cloud_processing_consent === true
+      const context = await getDecisionContext(projectId.value)
+      decisionContext.question = context.data?.question || ''
+      decisionContext.horizon = context.data?.horizon || ''
+      decisionContext.constraints = context.data?.constraints || ''
     } catch (e) {
       console.error('Failed to load materials:', e)
       cloudConsent.value = false
@@ -975,6 +1049,29 @@ onMounted(async () => {
   border-radius: var(--r-md);
   padding: 20px 24px;
   margin-bottom: 20px;
+}
+
+.decision-card {
+  border-color: var(--c-brand-line);
+  background: var(--c-brand-tint, #fff8f5);
+}
+
+.decision-hint {
+  margin: -6px 0 16px;
+  color: var(--c-ink-3);
+  font-size: 12px;
+  line-height: 1.6;
+}
+
+.decision-grid {
+  align-items: start;
+}
+
+.field-counter {
+  align-self: flex-end;
+  margin-top: -2px;
+  color: var(--c-ink-4);
+  font-size: 11px;
 }
 
 .card-header {

@@ -7,7 +7,7 @@
   <a href="https://www.python.org/"><img src="https://img.shields.io/badge/Python-3.11%20%7C%203.12%20%7C%203.13-111111?style=for-the-badge&logo=python&logoColor=white" alt="Python Version" /></a>
   <a href="https://vuejs.org/"><img src="https://img.shields.io/badge/Vue-3.x%20%2B%20Vite-42B883?style=for-the-badge&logo=vuedotjs&logoColor=white" alt="Vue 3" /></a>
   <a href="https://github.com/zhaopeizhao41-ops/PRISM/blob/main/LICENSE"><img src="https://img.shields.io/badge/License-AGPL--3.0-111111?style=for-the-badge" alt="License" /></a>
-  <img src="https://img.shields.io/badge/Tests-171%20Passed-057A55?style=for-the-badge&logo=pytest&logoColor=white" alt="Tests" />
+  <img src="https://img.shields.io/badge/Tests-181%20Passed-057A55?style=for-the-badge&logo=pytest&logoColor=white" alt="Tests" />
   <img src="https://img.shields.io/badge/Multimodal-Vision%20Ready-6C2BD9?style=for-the-badge&logo=openai&logoColor=white" alt="Multimodal" />
 </p>
 

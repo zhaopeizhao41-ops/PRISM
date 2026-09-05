@@ -100,3 +100,37 @@ def test_generate_reports_progress(generator, personal_model, monkeypatch):
     assert "directions" in stages
     assert "expand" in stages
     assert "finalize" in stages
+
+
+def test_generate_injects_normalized_decision_context(generator, personal_model, monkeypatch):
+    prompts = []
+
+    def fake_chat(llm, *, messages, max_tokens):
+        prompts.append(messages[-1]["content"])
+        if max_tokens == 2048:
+            return {"selected_directions": [
+                {"archetype": "builder", "positioning": "独立开发", "rationale": "r"},
+            ]}
+        return {"archetype": "builder", "positioning": "独立开发", "timeline": []}
+
+    monkeypatch.setattr(branch_generator, "_chat_json_with_retry", fake_chat)
+    result = generator.generate(
+        personal_model,
+        branch_count=3,
+        decision_context={
+            "question": "  我该转行吗？ ",
+            "horizon": "one_year",
+            "constraints": "  不牺牲健康。 ",
+            "unexpected": "忽略",
+        },
+    )
+
+    assert len(prompts) == 2
+    assert all("我该转行吗？" in prompt for prompt in prompts)
+    assert all("不牺牲健康。" in prompt for prompt in prompts)
+    assert all('"unexpected"' not in prompt for prompt in prompts)
+    assert result["decision_context"] == {
+        "question": "我该转行吗？",
+        "horizon": "one_year",
+        "constraints": "不牺牲健康。",
+    }

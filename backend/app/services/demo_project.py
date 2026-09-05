@@ -374,6 +374,11 @@ def ensure_demo_project() -> Tuple[Any, bool]:
         project.is_demo = True
         project.status = ProjectStatus.GRAPH_COMPLETED
         project.profile_scope = "personal"
+        project.decision_context = {
+            "question": "我应该现在离职全职做产品，还是继续用小规模试验换取确定性？",
+            "horizon": "1_year",
+            "constraints": "保留至少六个月现金缓冲，不以长期透支健康换取速度。",
+        }
         project.ontology = get_person_ontology()
         project.analysis_summary = "本地脱敏演示项目：不调用 LLM 或 Zep Cloud。"
         project.privacy_settings.update({

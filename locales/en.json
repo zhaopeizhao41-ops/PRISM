@@ -83,6 +83,21 @@
       "charCount": "{n} characters entered",
       "title": "Create Your Personal Profile",
       "subtitle": "Fill in the quantified form and/or provide diaries, resumes and other materials. The system builds your personal knowledge graph and synthesizes a stable profile. All fields are optional.",
+      "secDecision": "Start with the decision you want to explore",
+      "decisionOptional": "Optional, but it keeps branches focused",
+      "decisionHint": "Write down the choice you genuinely want to understand. It sets the analysis boundary; it is not treated as a fact or a substitute for evidence.",
+      "fDecisionQuestion": "Decision question",
+      "phDecisionQuestion": "For example: Should I change careers this year, or validate the direction as a side project first?",
+      "fDecisionHorizon": "Time horizon",
+      "phDecisionHorizon": "Choose a time range",
+      "decisionHorizonOptions": {
+        "three_months": "Next 3 months",
+        "one_year": "Next year",
+        "three_years": "Next 3 years",
+        "unspecified": "Not sure yet"
+      },
+      "fDecisionConstraints": "Non-negotiables",
+      "phDecisionConstraints": "For example: Keep six months of runway; protect my health",
       "allOptional": "All optional",
       "unfilled": "Not filled",
       "charsUnit": "chars",
@@ -535,6 +550,11 @@
   "workbench": {
     "title": "Workbench",
     "subtitle": "Profile → Branches → Evolution → Roundtable: all steps in one place, switch to graph anytime",
+    "decisionContext": {
+      "label": "Question to explore",
+      "horizon": "Time horizon",
+      "constraints": "Non-negotiables"
+    },
     "demoBanner": "This is a local de-identified demo project. It is for browsing the complete workflow and never calls an LLM or uploads to Zep Cloud.",
     "demoCta": "Create your own profile",
     "navLink": "Workbench",

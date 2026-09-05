@@ -83,6 +83,21 @@
       "charCount": "已输入 {n} 字",
       "title": "创建个人画像",
       "subtitle": "填写量化信息，或提供日记、简历等资料，系统将构建你的个人图谱并合成稳定画像。所有字段均可选，缺省部分由资料推断。",
+      "secDecision": "先说说你要解决的问题",
+      "decisionOptional": "可选，但能让分支更聚焦",
+      "decisionHint": "把这次真正想弄清楚的选择写下来。它会作为分析边界，不会被当成事实或替代资料证据。",
+      "fDecisionQuestion": "决策问题",
+      "phDecisionQuestion": "例如：我应该在今年转行，还是先用副业验证方向？",
+      "fDecisionHorizon": "希望观察多久",
+      "phDecisionHorizon": "选择时间范围",
+      "decisionHorizonOptions": {
+        "three_months": "未来 3 个月",
+        "one_year": "未来 1 年",
+        "three_years": "未来 3 年",
+        "unspecified": "还不确定"
+      },
+      "fDecisionConstraints": "不可妥协条件",
+      "phDecisionConstraints": "例如：保留 6 个月现金，不牺牲健康",
       "allOptional": "全部可选",
       "unfilled": "未填写",
       "charsUnit": "字",
@@ -535,6 +550,11 @@
   "workbench": {
     "title": "工作台",
     "subtitle": "画像 → 分支 → 推演 → 圆桌：全部步骤一站完成，随时切到图谱观察生长",
+    "decisionContext": {
+      "label": "本次要探索的问题",
+      "horizon": "观察范围",
+      "constraints": "不可妥协条件"
+    },
     "demoBanner": "这是本地脱敏演示项目。内容用于浏览完整流程，不会调用 LLM 或上传到 Zep Cloud。",
     "demoCta": "创建自己的画像",
     "navLink": "工作台",

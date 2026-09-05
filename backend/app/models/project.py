@@ -59,6 +59,13 @@ class Project:
     # 项目类型：默认（舆情模拟）/ personal_profile（个人画像）
     project_type: Optional[str] = None
 
+    # 用户希望探索的决策上下文；仅作为分析约束，不替代个人资料证据。
+    decision_context: Dict[str, str] = field(default_factory=lambda: {
+        "question": "",
+        "horizon": "",
+        "constraints": "",
+    })
+
     # 本地脱敏演示项目。演示项目只用于浏览流程，不代表用户资料。
     is_demo: bool = False
 
@@ -98,6 +105,7 @@ class Project:
             "chunk_size": self.chunk_size,
             "chunk_overlap": self.chunk_overlap,
             "project_type": self.project_type,
+            "decision_context": self.decision_context,
             "is_demo": self.is_demo,
             "privacy_settings": self.privacy_settings,
             "error": self.error
@@ -135,6 +143,15 @@ class Project:
             privacy_settings.setdefault("retention_days", None)
             privacy_settings.setdefault("last_cloud_purge_at", None)
 
+        decision_context = data.get('decision_context')
+        if not isinstance(decision_context, dict):
+            decision_context = {}
+        decision_context = {
+            "question": str(decision_context.get("question") or "").strip(),
+            "horizon": str(decision_context.get("horizon") or "").strip(),
+            "constraints": str(decision_context.get("constraints") or "").strip(),
+        }
+
         return cls(
             project_id=data['project_id'],
             name=data.get('name', 'Unnamed Project'),
@@ -156,6 +173,7 @@ class Project:
             chunk_size=data.get('chunk_size', 500),
             chunk_overlap=data.get('chunk_overlap', 50),
             project_type=data.get('project_type'),
+            decision_context=decision_context,
             is_demo=bool(data.get('is_demo', False)),
             privacy_settings=privacy_settings,
             error=data.get('error')

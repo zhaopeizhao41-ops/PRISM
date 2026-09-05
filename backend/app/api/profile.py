@@ -51,6 +51,33 @@ logger = get_logger('prism.profile')
 _material_locks: dict[str, threading.Lock] = {}
 _material_locks_guard = threading.Lock()
 
+_DECISION_CONTEXT_LIMITS = {
+    "question": 500,
+    "horizon": 80,
+    "constraints": 1000,
+}
+
+
+def _normalize_decision_context(value):
+    """Validate the small, user-authored decision context contract."""
+    if value is None:
+        value = {}
+    if not isinstance(value, dict):
+        return None, "decision_context must be a JSON object"
+
+    normalized = {}
+    for key, limit in _DECISION_CONTEXT_LIMITS.items():
+        raw = value.get(key, "")
+        if raw is None:
+            raw = ""
+        if not isinstance(raw, str):
+            return None, f"decision_context.{key} must be a string"
+        text = raw.strip()
+        if len(text) > limit:
+            return None, f"decision_context.{key} must be at most {limit} characters"
+        normalized[key] = text
+    return normalized, None
+
 
 def _material_lock(project_id: str) -> threading.Lock:
     with _material_locks_guard:
@@ -280,14 +307,22 @@ def create_profile_project():
 
     返回：{ "success": true, "data": { "project_id": "proj_xxx" } }
     """
-    data = request.get_json(silent=True) or {}
+    data = request.get_json(silent=True)
+    if data is None:
+        data = {}
+    if not isinstance(data, dict):
+        return jsonify({"success": False, "error": "JSON object is required"}), 400
     name = (data.get('name') or 'Personal Profile').strip() or 'Personal Profile'
     cloud_consent = data.get('cloud_processing_consent', False)
     if not isinstance(cloud_consent, bool):
         return jsonify({"success": False, "error": "cloud_processing_consent must be a JSON boolean"}), 400
+    decision_context, context_error = _normalize_decision_context(data.get('decision_context'))
+    if context_error:
+        return jsonify({"success": False, "error": context_error}), 400
 
     project = ProjectManager.create_project(name=name)
     project.project_type = "personal_profile"
+    project.decision_context = decision_context
     project.privacy_settings.update({
         "cloud_processing_consent": cloud_consent,
         "consent_source": "profile_create" if cloud_consent else "not_granted",
@@ -306,7 +341,10 @@ def create_profile_project():
     logger.info(f"创建个人画像项目: {project.project_id}")
     return jsonify({
         "success": True,
-        "data": {"project_id": project.project_id}
+        "data": {
+            "project_id": project.project_id,
+            "decision_context": project.decision_context,
+        }
     })
 
 
@@ -337,6 +375,30 @@ def create_demo_project():
             "cloud_processing_consent": False,
         },
     })
+
+
+@profile_bp.route('/decision-context/<project_id>', methods=['GET', 'PATCH'])
+def profile_decision_context(project_id: str):
+    """Read or update the user's decision question and its constraints."""
+    project, error = _get_profile_project(project_id)
+    if error:
+        return error
+    if request.method == 'GET':
+        return jsonify({"success": True, "data": project.decision_context})
+
+    data = request.get_json(silent=True)
+    if data is None:
+        data = {}
+    if not isinstance(data, dict):
+        return jsonify({"success": False, "error": "JSON object is required"}), 400
+    current_context = dict(project.decision_context or {})
+    current_context.update(data)
+    context, context_error = _normalize_decision_context(current_context)
+    if context_error:
+        return jsonify({"success": False, "error": context_error}), 400
+    project.decision_context = context
+    ProjectManager.save_project(project)
+    return jsonify({"success": True, "data": project.decision_context})
 
 
 # ============== 资料接入 ==============
@@ -1131,6 +1193,7 @@ def list_profile_projects():
             "project_id": p.project_id,
             "name": p.name,
             "is_demo": bool(getattr(p, "is_demo", False)),
+            "decision_context": p.decision_context,
             "status": p.status,
             "created_at": p.created_at,
             "model_version": (model or {}).get("model_version"),

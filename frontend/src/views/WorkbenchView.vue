@@ -21,6 +21,21 @@
           </button>
         </section>
 
+        <section v-if="!loading && hasDecisionContext" class="decision-context-panel" aria-labelledby="decision-context-title">
+          <div class="decision-context-kicker">{{ t('workbench.decisionContext.label') }}</div>
+          <h2 id="decision-context-title" class="decision-context-question">{{ decisionContext.question }}</h2>
+          <div class="decision-context-meta">
+            <span v-if="decisionContext.horizon">
+              <strong>{{ t('workbench.decisionContext.horizon') }}</strong>
+              {{ decisionHorizonLabel(decisionContext.horizon) }}
+            </span>
+            <span v-if="decisionContext.constraints">
+              <strong>{{ t('workbench.decisionContext.constraints') }}</strong>
+              {{ decisionContext.constraints }}
+            </span>
+          </div>
+        </section>
+
         <section v-if="!loading && nextAction" class="next-action-panel" :class="`tone-${nextAction.tone}`">
           <div class="next-action-mark" aria-hidden="true">→</div>
           <div class="next-action-copy">
@@ -434,6 +449,7 @@ function switchMode(mode) {
 // ---------- 工作台数据 ----------
 const loading = ref(true)
 const isDemo = ref(false)
+const decisionContext = ref({ question: '', horizon: '', constraints: '' })
 const model = ref(null)
 const branchCount = ref(0)
 const roundtableCount = ref(0)
@@ -482,6 +498,17 @@ const evolvingCount = computed(() =>
 const taskCenterItems = computed(() => projectTasks.value
   .filter(task => task && task.status !== 'completed')
   .slice(0, 5))
+
+const hasDecisionContext = computed(() => Boolean(
+  decisionContext.value.question
+  || decisionContext.value.horizon
+  || decisionContext.value.constraints
+))
+
+function decisionHorizonLabel(value) {
+  const key = `profile.create.decisionHorizonOptions.${value}`
+  return te(key) ? t(key) : value
+}
 
 const hasActiveProjectTasks = computed(() => projectTasks.value.some(task =>
   task && ['pending', 'processing'].includes(task.status)
@@ -731,6 +758,12 @@ async function loadWorkbench() {
     scheduleTaskPolling()
     const proj = (projectsRes.data || []).find(p => p.project_id === props.projectId)
     isDemo.value = Boolean(proj?.is_demo)
+    const context = proj?.decision_context || {}
+    decisionContext.value = {
+      question: String(context.question || ''),
+      horizon: String(context.horizon || ''),
+      constraints: String(context.constraints || ''),
+    }
     roundtableCount.value = roundtables.value.length || proj?.roundtable_count || 0
     // 智能默认展开最高进展步骤
     if (sessions.value.length) {
@@ -1037,6 +1070,50 @@ onBeforeUnmount(stopTaskPolling)
   color: var(--c-brand);
   border-color: var(--c-brand);
   white-space: nowrap;
+}
+
+.decision-context-panel {
+  margin: 0 0 22px;
+  padding: 15px 18px;
+  border: 1px solid var(--c-line-strong);
+  border-left: 4px solid var(--c-ink);
+  background: var(--c-bg-softer);
+}
+
+.decision-context-kicker {
+  color: var(--c-brand);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 1.2px;
+  text-transform: uppercase;
+}
+
+.decision-context-question {
+  margin-top: 5px;
+  color: var(--c-ink);
+  font-size: 16px;
+  line-height: 1.45;
+  overflow-wrap: anywhere;
+}
+
+.decision-context-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 18px;
+  margin-top: 10px;
+  color: var(--c-ink-3);
+  font-size: 12px;
+  line-height: 1.55;
+}
+
+.decision-context-meta span {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.decision-context-meta strong {
+  margin-right: 5px;
+  color: var(--c-ink-2);
 }
 
 .next-action-panel {
