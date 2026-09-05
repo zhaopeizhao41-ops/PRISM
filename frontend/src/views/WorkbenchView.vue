@@ -36,6 +36,29 @@
           </div>
         </section>
 
+        <section v-if="!loading" class="project-overview" :aria-label="t('workbench.projectOverview.title')">
+          <div class="project-overview-title">{{ t('workbench.projectOverview.title') }}</div>
+          <div class="project-overview-grid">
+            <div class="overview-item">
+              <span class="overview-label">{{ t('workbench.projectOverview.status') }}</span>
+              <strong>{{ projectStatusLabel(projectStatus) }}</strong>
+            </div>
+            <div class="overview-item">
+              <span class="overview-label">{{ t('workbench.projectOverview.materials') }}</span>
+              <strong>{{ materialCount }} {{ t('workbench.projectOverview.materialUnit') }}</strong>
+              <span class="overview-detail">{{ t('workbench.projectOverview.charCount', { n: totalTextLength.toLocaleString() }) }}</span>
+            </div>
+            <div class="overview-item">
+              <span class="overview-label">{{ t('workbench.projectOverview.model') }}</span>
+              <strong>{{ model?.model_version ? `v${model.model_version}` : t('workbench.projectOverview.modelPending') }}</strong>
+            </div>
+            <div class="overview-item overview-gap">
+              <span class="overview-label">{{ t('workbench.projectOverview.gaps') }}</span>
+              <strong :class="`gap-${dataGapTone}`">{{ dataGapSummary }}</strong>
+            </div>
+          </div>
+        </section>
+
         <section v-if="!loading && nextAction" class="next-action-panel" :class="`tone-${nextAction.tone}`">
           <div class="next-action-mark" aria-hidden="true">→</div>
           <div class="next-action-copy">
@@ -450,6 +473,9 @@ function switchMode(mode) {
 const loading = ref(true)
 const isDemo = ref(false)
 const decisionContext = ref({ question: '', horizon: '', constraints: '' })
+const projectStatus = ref('')
+const materialCount = ref(0)
+const totalTextLength = ref(0)
 const model = ref(null)
 const branchCount = ref(0)
 const roundtableCount = ref(0)
@@ -504,6 +530,29 @@ const hasDecisionContext = computed(() => Boolean(
   || decisionContext.value.horizon
   || decisionContext.value.constraints
 ))
+
+const openQuestionCount = computed(() => {
+  const questions = model.value?.open_questions
+  return Array.isArray(questions) ? questions.length : 0
+})
+
+const dataGapTone = computed(() => {
+  if (!model.value || openQuestionCount.value > 0 || materialCount.value === 0) return 'warning'
+  return 'good'
+})
+
+const dataGapSummary = computed(() => {
+  if (!materialCount.value) return t('workbench.projectOverview.noMaterials')
+  if (!model.value) return t('workbench.projectOverview.modelPending')
+  if (openQuestionCount.value) return t('workbench.projectOverview.openQuestions', { n: openQuestionCount.value })
+  return t('workbench.projectOverview.coverageReady')
+})
+
+function projectStatusLabel(value) {
+  const normalized = String(value || '').replace(/^ProjectStatus\./, '').toLowerCase()
+  const key = `workbench.projectOverview.statusValues.${normalized}`
+  return te(key) ? t(key) : (normalized || t('workbench.projectOverview.statusValues.unknown'))
+}
 
 function decisionHorizonLabel(value) {
   const key = `profile.create.decisionHorizonOptions.${value}`
@@ -758,6 +807,9 @@ async function loadWorkbench() {
     scheduleTaskPolling()
     const proj = (projectsRes.data || []).find(p => p.project_id === props.projectId)
     isDemo.value = Boolean(proj?.is_demo)
+    projectStatus.value = String(proj?.status || '')
+    materialCount.value = Number.isFinite(Number(proj?.material_count)) ? Number(proj.material_count) : 0
+    totalTextLength.value = Number.isFinite(Number(proj?.total_text_length)) ? Number(proj.total_text_length) : 0
     const context = proj?.decision_context || {}
     decisionContext.value = {
       question: String(context.question || ''),
@@ -1114,6 +1166,69 @@ onBeforeUnmount(stopTaskPolling)
 .decision-context-meta strong {
   margin-right: 5px;
   color: var(--c-ink-2);
+}
+
+.project-overview {
+  margin: 0 0 22px;
+  padding: 12px 14px 14px;
+  border-top: 1px solid var(--c-line-strong);
+  border-bottom: 1px solid var(--c-line-strong);
+  background: var(--c-paper);
+}
+
+.project-overview-title {
+  margin-bottom: 10px;
+  color: var(--c-ink-3);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 1px;
+  text-transform: uppercase;
+}
+
+.project-overview-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.overview-item {
+  min-width: 0;
+  padding-right: 10px;
+  border-right: 1px solid var(--c-line-soft);
+}
+
+.overview-item:last-child {
+  padding-right: 0;
+  border-right: none;
+}
+
+.overview-label,
+.overview-detail {
+  display: block;
+  color: var(--c-ink-4);
+  font-size: 11px;
+  line-height: 1.4;
+}
+
+.overview-item strong {
+  display: block;
+  margin-top: 3px;
+  overflow-wrap: anywhere;
+  color: var(--c-ink);
+  font-size: 13px;
+  line-height: 1.4;
+}
+
+.overview-detail {
+  margin-top: 2px;
+}
+
+.overview-item strong.gap-warning {
+  color: var(--c-brand);
+}
+
+.overview-item strong.gap-good {
+  color: var(--a-conservative);
 }
 
 .next-action-panel {
@@ -2148,12 +2263,42 @@ onBeforeUnmount(stopTaskPolling)
     grid-column: 2;
     justify-self: start;
   }
+  .project-overview-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .overview-item:nth-child(2) {
+    border-right: none;
+  }
+  .overview-item:nth-child(-n + 2) {
+    padding-bottom: 8px;
+    border-bottom: 1px solid var(--c-line-soft);
+  }
+  .overview-item:nth-child(2n) {
+    padding-right: 0;
+  }
   /* 极窄时换行，switcher 内容宽度不再全宽拉伸（避免与语言下拉重叠） */
   .fork-options {
     grid-template-columns: 1fr;
   }
   .last-stage .world-grid {
     grid-template-columns: 1fr 1fr;
+  }
+}
+
+@media (max-width: 520px) {
+  .project-overview-grid {
+    grid-template-columns: 1fr;
+    gap: 9px;
+  }
+  .overview-item,
+  .overview-item:nth-child(2n) {
+    padding: 0 0 8px;
+    border-right: none;
+    border-bottom: 1px solid var(--c-line-soft);
+  }
+  .overview-item:last-child {
+    padding-bottom: 0;
+    border-bottom: none;
   }
 }
 </style>

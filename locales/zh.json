@@ -555,6 +555,27 @@
       "horizon": "观察范围",
       "constraints": "不可妥协条件"
     },
+    "projectOverview": {
+      "title": "项目概览",
+      "status": "项目状态",
+      "materials": "资料",
+      "materialUnit": "项",
+      "charCount": "{n} 字",
+      "model": "画像版本",
+      "modelPending": "尚未生成",
+      "gaps": "资料缺口",
+      "noMaterials": "还没有资料",
+      "openQuestions": "待核验 {n} 项",
+      "coverageReady": "当前覆盖完整",
+      "statusValues": {
+        "created": "待提交资料",
+        "ontology_generated": "等待建图",
+        "graph_building": "建图中",
+        "graph_completed": "图谱已完成",
+        "failed": "处理失败",
+        "unknown": "未知"
+      }
+    },
     "demoBanner": "这是本地脱敏演示项目。内容用于浏览完整流程，不会调用 LLM 或上传到 Zep Cloud。",
     "demoCta": "创建自己的画像",
     "navLink": "工作台",

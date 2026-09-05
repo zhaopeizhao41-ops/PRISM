@@ -453,6 +453,8 @@ def submit_structured_input():
     existing = ProjectManager.get_extracted_text(project_id) or ""
     merged = merge_materials([existing, text]) if existing else text
     ProjectManager.save_extracted_text(project_id, merged)
+    project.total_text_length = len(merged)
+    ProjectManager.save_project(project)
 
     return jsonify({
         "success": True,
@@ -1163,7 +1165,8 @@ def compare_model_versions(project_id: str):
 def list_profile_projects():
     """
     画像项目列表（首页用）
-    每项含进度徽标数据：模型版本 / 分支数 / 推演宇宙数 / 圆桌数 / 关系人数
+    每项含进度徽标数据：项目状态、资料量、模型版本 / 分支数 /
+    推演宇宙数 / 圆桌数 / 关系人数
     """
     from ..models.branch import BranchStore
     from ..models.evolution import EvolutionStore
@@ -1181,6 +1184,7 @@ def list_profile_projects():
         sessions = EvolutionStore.list_sessions(p.project_id)
         dialogs = RoundtableStore.list_dialogs(p.project_id)
         cards_data = RelationshipAgentStore.get_current(p.project_id)
+        material_manifest = _load_manifest(p.project_id)
         # 最近可续推的会话：优先 active，其次最近有进展的
         active = next(
             (s for s in sessions if s.get("status") == "active" and s.get("stages_done", 0) >= 1),
@@ -1196,6 +1200,8 @@ def list_profile_projects():
             "decision_context": p.decision_context,
             "status": p.status,
             "created_at": p.created_at,
+            "material_count": len(material_manifest),
+            "total_text_length": p.total_text_length,
             "model_version": (model or {}).get("model_version"),
             "branch_count": len((branches_data or {}).get("branches") or []),
             "universe_count": len([s for s in sessions if s["stages_done"] >= 1]),

@@ -57,6 +57,9 @@ def test_create_get_patch_and_list_decision_context(client):
     assert listed.status_code == 200
     item = next(row for row in listed.get_json()["data"] if row["project_id"] == project_id)
     assert item["decision_context"] == updated.get_json()["data"]
+    assert item["status"] == "ontology_generated"
+    assert item["material_count"] == 0
+    assert item["total_text_length"] == 0
 
 
 @pytest.mark.parametrize(
@@ -104,3 +107,19 @@ def test_legacy_project_defaults_to_empty_decision_context():
         }
     )
     assert project.decision_context == {"question": "", "horizon": "", "constraints": ""}
+
+
+def test_project_overview_counts_submitted_materials(client):
+    created = client.post("/api/profile/create", json={"name": "资料统计"})
+    project_id = created.get_json()["data"]["project_id"]
+
+    submitted = client.post(
+        "/api/profile/structured-input",
+        json={"project_id": project_id, "form": {"industry": "软件工程"}},
+    )
+    assert submitted.status_code == 200
+
+    listed = client.get("/api/profile/projects")
+    item = next(row for row in listed.get_json()["data"] if row["project_id"] == project_id)
+    assert item["material_count"] == 1
+    assert item["total_text_length"] > 0

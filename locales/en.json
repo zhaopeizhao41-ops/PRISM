@@ -555,6 +555,27 @@
       "horizon": "Time horizon",
       "constraints": "Non-negotiables"
     },
+    "projectOverview": {
+      "title": "Project overview",
+      "status": "Status",
+      "materials": "Materials",
+      "materialUnit": "items",
+      "charCount": "{n} chars",
+      "model": "Profile version",
+      "modelPending": "Not generated",
+      "gaps": "Evidence gaps",
+      "noMaterials": "No materials yet",
+      "openQuestions": "{n} to verify",
+      "coverageReady": "Coverage is ready",
+      "statusValues": {
+        "created": "Waiting for materials",
+        "ontology_generated": "Ready to build graph",
+        "graph_building": "Building graph",
+        "graph_completed": "Graph complete",
+        "failed": "Processing failed",
+        "unknown": "Unknown"
+      }
+    },
     "demoBanner": "This is a local de-identified demo project. It is for browsing the complete workflow and never calls an LLM or uploads to Zep Cloud.",
     "demoCta": "Create your own profile",
     "navLink": "Workbench",
