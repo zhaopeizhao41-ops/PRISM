@@ -266,6 +266,67 @@
           </div>
         </section>
 
+        <!-- 隐私与数据生命周期 -->
+        <section v-if="!isLiterary" class="profile-card privacy-settings-card">
+          <div class="card-label">{{ t('profile.view.privacyTitle') }}</div>
+          <p class="privacy-description">{{ t('profile.view.privacyDescription') }}</p>
+
+          <div v-if="privacyLoading" class="privacy-state">{{ t('profile.view.privacyLoading') }}</div>
+          <div v-else-if="privacy" class="privacy-settings">
+            <div class="privacy-setting-row">
+              <div class="privacy-setting-copy">
+                <div class="privacy-setting-title">{{ t('profile.view.privacyConsentLabel') }}</div>
+                <p class="privacy-setting-note">{{ t('profile.view.privacyConsentNote') }}</p>
+              </div>
+              <label class="privacy-check">
+                <input
+                  v-model="privacyConsentDraft"
+                  type="checkbox"
+                  :aria-label="t('profile.view.privacyConsentLabel')"
+                >
+                <span>{{ privacyConsentDraft ? t('profile.view.privacyConsentOn') : t('profile.view.privacyConsentOff') }}</span>
+              </label>
+            </div>
+
+            <div class="privacy-setting-row retention-row">
+              <div class="privacy-setting-copy">
+                <div class="privacy-setting-title">{{ t('profile.view.privacyRetentionLabel') }}</div>
+                <p class="privacy-setting-note">{{ t('profile.view.privacyRetentionNote') }}</p>
+              </div>
+              <select
+                v-model="privacyRetentionDraft"
+                class="privacy-retention-select"
+                :aria-label="t('profile.view.privacyRetentionLabel')"
+              >
+                <option value="">{{ t('profile.view.privacyRetainForever') }}</option>
+                <option v-for="days in privacyRetentionOptions" :key="days" :value="String(days)">
+                  {{ t('profile.view.privacyRetainDays', { n: days }) }}
+                </option>
+              </select>
+            </div>
+
+            <p class="privacy-cloud-state" :class="{ active: privacy.cloud_processing_consent }">
+              {{ privacy.cloud_processing_consent ? t('profile.view.privacyCloudActive') : t('profile.view.privacyCloudOff') }}
+            </p>
+            <div class="privacy-actions">
+              <button
+                class="privacy-save-btn"
+                type="button"
+                :disabled="privacySaving || !privacyDirty"
+                @click="saveProjectPrivacy"
+              >
+                {{ privacySaving ? t('profile.view.privacySaving') : t('profile.view.privacySave') }}
+              </button>
+              <span v-if="privacySaved" class="privacy-saved" role="status">{{ privacySaved }}</span>
+            </div>
+            <p v-if="privacyError" class="privacy-error" role="alert">{{ privacyError }}</p>
+          </div>
+          <div v-else class="privacy-state error">
+            <span>{{ privacyError || t('profile.view.privacyLoadFailed') }}</span>
+            <button class="btn-mini" type="button" @click="loadProjectPrivacy">{{ t('common.retry') }}</button>
+          </div>
+        </section>
+
         <!-- 卡片4：关系人 Agent -->
         <section v-if="!isLiterary" class="profile-card agents-card">
           <div class="card-label">{{ t('relationship.title') }}</div>
@@ -441,7 +502,14 @@ import { useRouter, useRoute } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import AppHeader from '../components/AppHeader.vue'
 import EvidenceDrawer from '../components/EvidenceDrawer.vue'
-import { getPersonalModel, getLiteraryAnalysis, listMaterials, comparePersonalModelVersions } from '../api/profile'
+import {
+  getPersonalModel,
+  getLiteraryAnalysis,
+  listMaterials,
+  comparePersonalModelVersions,
+  getProjectPrivacy,
+  updateProjectPrivacy,
+} from '../api/profile'
 import {
   getRelationshipCandidates,
   generateRelationshipAgents,
@@ -469,6 +537,21 @@ const versionTo = ref(null)
 const versionDiff = ref(null)
 const versionCompareLoading = ref(false)
 const versionCompareError = ref('')
+const privacy = ref(null)
+const privacyLoading = ref(false)
+const privacySaving = ref(false)
+const privacyError = ref('')
+const privacySaved = ref('')
+const privacyConsentDraft = ref(false)
+const privacyRetentionDraft = ref('')
+const privacyRetentionOptions = [30, 90, 180, 365, 730, 1095, 1825, 3650]
+
+const privacyDirty = computed(() => {
+  if (!privacy.value) return false
+  const currentRetention = privacy.value.retention_days == null ? '' : String(privacy.value.retention_days)
+  return privacyConsentDraft.value !== (privacy.value.cloud_processing_consent === true)
+    || privacyRetentionDraft.value !== currentRetention
+})
 const detailsOpen = ref(false)
 const isLiterary = computed(() => route.query.scope === 'literary')
 const materials = ref([])
@@ -628,6 +711,56 @@ async function loadExistingCards() {
     agentCards.value = []
   }
   loadCorrections()
+}
+
+function syncPrivacyDraft(value) {
+  privacy.value = value
+  privacyConsentDraft.value = value?.cloud_processing_consent === true
+  privacyRetentionDraft.value = value?.retention_days == null ? '' : String(value.retention_days)
+}
+
+async function loadProjectPrivacy() {
+  if (isLiterary.value) return
+  privacyLoading.value = true
+  privacyError.value = ''
+  privacySaved.value = ''
+  try {
+    const res = await getProjectPrivacy(props.projectId)
+    syncPrivacyDraft(res.data)
+  } catch (error) {
+    privacy.value = null
+    privacyError.value = error?.message || t('profile.view.privacyLoadFailed')
+  } finally {
+    privacyLoading.value = false
+  }
+}
+
+async function saveProjectPrivacy() {
+  if (!privacy.value || privacySaving.value || !privacyDirty.value) return
+  if (privacy.value.cloud_processing_consent && !privacyConsentDraft.value) {
+    const confirmed = window.confirm(t('profile.view.privacyRevokeConfirm'))
+    if (!confirmed) {
+      privacyConsentDraft.value = true
+      return
+    }
+  }
+
+  privacySaving.value = true
+  privacyError.value = ''
+  privacySaved.value = ''
+  try {
+    const retention = privacyRetentionDraft.value === '' ? null : Number(privacyRetentionDraft.value)
+    const res = await updateProjectPrivacy(props.projectId, {
+      cloud_processing_consent: privacyConsentDraft.value,
+      retention_days: retention,
+    })
+    syncPrivacyDraft(res.data)
+    privacySaved.value = t('profile.view.privacySaved')
+  } catch (error) {
+    privacyError.value = error?.message || t('profile.view.privacySaveFailed')
+  } finally {
+    privacySaving.value = false
+  }
 }
 
 // ----- 纠错回路 -----
@@ -806,7 +939,9 @@ onMounted(async () => {
       versionFrom.value = versions.value[versions.value.length - 2]
     }
     await loadEvidenceMaterials()
-    if (!isLiterary.value) await loadExistingCards()
+    if (!isLiterary.value) {
+      await Promise.all([loadProjectPrivacy(), loadExistingCards()])
+    }
   } catch (e) {
     loadError.value = e?.message || String(e)
   } finally {
@@ -956,6 +1091,143 @@ async function loadVersionComparison() {
   border-radius: var(--r-md);
   padding: 24px 28px;
   margin-bottom: 20px;
+}
+
+.privacy-settings-card {
+  border-color: var(--c-line-strong);
+  background: var(--c-bg-softer);
+}
+
+.privacy-description,
+.privacy-setting-note {
+  color: var(--c-ink-3);
+  font-size: 12px;
+  line-height: 1.6;
+}
+
+.privacy-description {
+  margin: -4px 0 16px;
+}
+
+.privacy-state {
+  color: var(--c-ink-4);
+  font-size: 13px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.privacy-state.error,
+.privacy-error {
+  color: var(--a-aggressive);
+}
+
+.privacy-settings {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.privacy-setting-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 20px;
+  padding: 12px 0;
+  border-top: 1px solid var(--c-line-soft);
+}
+
+.privacy-setting-copy {
+  min-width: 0;
+}
+
+.privacy-setting-title {
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--c-ink-2);
+}
+
+.privacy-setting-note {
+  margin-top: 4px;
+}
+
+.privacy-check {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  flex: 0 0 auto;
+  color: var(--c-ink-2);
+  font-size: 12px;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.privacy-check input {
+  width: 16px;
+  height: 16px;
+  accent-color: var(--c-brand);
+}
+
+.privacy-retention-select {
+  min-width: 180px;
+  max-width: 100%;
+  border: 1px solid var(--c-line-strong);
+  border-radius: var(--r-sm);
+  background: var(--c-paper);
+  color: var(--c-ink-2);
+  padding: 8px 10px;
+  font: inherit;
+  font-size: 12px;
+}
+
+.privacy-cloud-state {
+  margin: 0;
+  padding: 9px 10px;
+  border-left: 3px solid var(--c-line-strong);
+  background: var(--c-paper);
+  color: var(--c-ink-4);
+  font-size: 12px;
+  line-height: 1.55;
+}
+
+.privacy-cloud-state.active {
+  border-left-color: var(--a-balanced);
+  color: var(--c-ink-2);
+}
+
+.privacy-actions {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.privacy-save-btn {
+  border: 1px solid var(--c-ink);
+  border-radius: var(--r-sm);
+  background: var(--c-ink);
+  color: var(--c-paper);
+  padding: 8px 13px;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.privacy-save-btn:disabled {
+  cursor: not-allowed;
+  opacity: 0.45;
+}
+
+.privacy-saved {
+  color: var(--a-balanced);
+  font-size: 12px;
+}
+
+.privacy-error {
+  margin: 0;
+  font-size: 12px;
 }
 
 .card-label {
@@ -1903,6 +2175,21 @@ async function loadVersionComparison() {
 }
 
 @media (max-width: 640px) {
+  .privacy-setting-row {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 10px;
+  }
+
+  .privacy-check,
+  .privacy-retention-select {
+    align-self: stretch;
+  }
+
+  .privacy-retention-select {
+    min-width: 0;
+  }
+
   .timeline-item {
     flex-direction: column;
     gap: 4px;

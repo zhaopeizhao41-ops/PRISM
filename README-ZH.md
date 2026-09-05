@@ -7,7 +7,7 @@
   <a href="https://www.python.org/"><img src="https://img.shields.io/badge/Python-3.11%20%7C%203.12%20%7C%203.13-111111?style=for-the-badge&logo=python&logoColor=white" alt="Python 版本" /></a>
   <a href="https://vuejs.org/"><img src="https://img.shields.io/badge/Vue-3.x%20%2B%20Vite-42B883?style=for-the-badge&logo=vuedotjs&logoColor=white" alt="Vue 3" /></a>
   <a href="https://github.com/zhaopeizhao41-ops/PRISM/blob/main/LICENSE"><img src="https://img.shields.io/badge/%E5%BC%80%E6%BA%90%E5%8D%8F%E8%AE%AE-AGPL--3.0-111111?style=for-the-badge" alt="开源协议" /></a>
-  <img src="https://img.shields.io/badge/%E5%8D%95%E5%85%83%E6%B5%8B%E8%AF%95-171%20%E9%A1%B9%E9%80%9A%E8%BF%87-057A55?style=for-the-badge&logo=pytest&logoColor=white" alt="测试状态" />
+  <img src="https://img.shields.io/badge/%E5%8D%95%E5%85%83%E6%B5%8B%E8%AF%95-191%20%E9%A1%B9%E9%80%9A%E8%BF%87-057A55?style=for-the-badge&logo=pytest&logoColor=white" alt="测试状态" />
   <img src="https://img.shields.io/badge/%E5%A4%9A%E6%A8%A1%E6%80%81-Vision%20%E8%A7%86%E8%A7%89%E5%B7%B2%E5%B0%B1%E7%BB%AA-6C2BD9?style=for-the-badge&logo=openai&logoColor=white" alt="多模态视觉" />
 </p>
 

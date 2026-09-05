@@ -38,7 +38,8 @@
     "graphBuildStarted": "图谱构建任务已启动，请通过 /task/{taskId} 查询进度",
     "taskNotFound": "任务不存在: {id}",
     "graphDeleted": "图谱已删除: {id}",
-    "cloudConsentRequired": "请先明确同意将项目资料发送到 LLM 与 Zep Cloud"
+    "cloudConsentRequired": "请先明确同意将项目资料发送到 LLM 与 Zep Cloud",
+    "privacyPurgeFailed": "云端数据清理失败，请稍后重试"
   },
   "progress": {
     "initGraphService": "初始化图谱构建服务...",
@@ -258,7 +259,26 @@
         "added": "新增",
         "removed": "移除",
         "changed": "变化"
-      }
+      },
+      "privacyTitle": "隐私与数据生命周期",
+      "privacyDescription": "控制这份画像是否继续使用云端服务，以及本地项目在多久后自动清理。画像页面不会展示或导出 API Key。",
+      "privacyLoading": "读取隐私设置中…",
+      "privacyConsentLabel": "允许云端处理",
+      "privacyConsentNote": "关闭后会清理已关联的云端图谱，但保留本地画像文件。重新生成前需要再次同意。",
+      "privacyConsentOn": "已同意",
+      "privacyConsentOff": "未同意",
+      "privacyRetentionLabel": "资料保留期限",
+      "privacyRetentionNote": "期限从项目最近一次更新起计算；到期后会尝试删除整个项目。",
+      "privacyRetainForever": "不自动清理",
+      "privacyRetainDays": "{n} 天后清理",
+      "privacyCloudActive": "云端处理已开启，新的建图、推演和圆桌请求可以使用已同意的服务。",
+      "privacyCloudOff": "云端处理已关闭，项目当前不会向 LLM 或 Zep Cloud 发送资料。",
+      "privacySave": "保存隐私设置",
+      "privacySaving": "保存中…",
+      "privacySaved": "隐私设置已保存",
+      "privacyLoadFailed": "隐私设置暂时无法读取。",
+      "privacySaveFailed": "隐私设置保存失败，请稍后重试。",
+      "privacyRevokeConfirm": "撤回同意会删除该项目关联的云端图谱，但保留本地文件。确定继续吗？"
     },
     "mat": {
       "structured_form": "量化表单",
@@ -618,6 +638,16 @@
     },
     "demoBanner": "这是本地脱敏演示项目。内容用于浏览完整流程，不会调用 LLM 或上传到 Zep Cloud。",
     "demoCta": "创建自己的画像",
+    "riskNotice": {
+      "title": "高风险主题提醒",
+      "topics": {
+        "finance": "财务",
+        "health": "健康",
+        "legal": "法律"
+      },
+      "description": "当前决策涉及需要额外谨慎核验的主题。PRISM 输出的是情景模拟，不是财务、医疗或法律建议。",
+      "action": "请用可靠资料复核关键事实；涉及实际损失或人身风险时，咨询合格的专业人士。"
+    },
     "navLink": "工作台",
     "tabWorkbench": "工作台",
     "tabGraph": "图谱",

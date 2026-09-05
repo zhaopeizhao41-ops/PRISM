@@ -82,6 +82,29 @@ def test_revoking_consent_purges_all_cloud_references(client, project, monkeypat
     assert saved.status == ProjectStatus.ONTOLOGY_GENERATED
 
 
+def test_revoking_consent_masks_cloud_cleanup_error(client, project, monkeypatch):
+    project.privacy_settings.update({
+        'cloud_processing_consent': True,
+        'consent_source': 'user_settings',
+    })
+    ProjectManager.save_project(project)
+    monkeypatch.setattr(
+        graph_api,
+        '_delete_project_cloud_graphs',
+        lambda item: (_ for _ in ()).throw(RuntimeError('provider secret / local path should not leak')),
+    )
+
+    response = client.patch(
+        f'/api/profile/privacy/{project.project_id}',
+        json={'cloud_processing_consent': False},
+    )
+
+    assert response.status_code == 502
+    payload = response.get_json()
+    assert payload['error'] == '云端数据清理失败，请稍后重试'
+    assert 'provider secret' not in response.get_data(as_text=True)
+
+
 def test_retention_expiry_uses_updated_at_and_explicit_days(project):
     now = datetime(2026, 9, 3, tzinfo=timezone.utc)
     project.updated_at = (now - timedelta(days=31)).isoformat()

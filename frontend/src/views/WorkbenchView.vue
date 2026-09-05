@@ -36,6 +36,18 @@
           </div>
         </section>
 
+        <section v-if="!loading && riskTopics.length" class="risk-notice" role="alert" aria-labelledby="risk-notice-title">
+          <div class="risk-notice-mark" aria-hidden="true">!</div>
+          <div class="risk-notice-copy">
+            <div id="risk-notice-title" class="risk-notice-title">{{ t('workbench.riskNotice.title') }}</div>
+            <div class="risk-topic-list">
+              <span v-for="topic in riskTopics" :key="topic" class="risk-topic">{{ riskTopicLabel(topic) }}</span>
+            </div>
+            <p>{{ t('workbench.riskNotice.description') }}</p>
+            <p class="risk-notice-action">{{ t('workbench.riskNotice.action') }}</p>
+          </div>
+        </section>
+
         <section v-if="!loading" class="project-overview" :aria-label="t('workbench.projectOverview.title')">
           <div class="project-overview-title">{{ t('workbench.projectOverview.title') }}</div>
           <div class="project-overview-grid">
@@ -493,6 +505,7 @@ function switchMode(mode) {
 const loading = ref(true)
 const isDemo = ref(false)
 const decisionContext = ref({ question: '', horizon: '', constraints: '' })
+const riskTopics = ref([])
 const projectStatus = ref('')
 const materialCount = ref(0)
 const totalTextLength = ref(0)
@@ -577,6 +590,11 @@ function projectStatusLabel(value) {
 function decisionHorizonLabel(value) {
   const key = `profile.create.decisionHorizonOptions.${value}`
   return te(key) ? t(key) : value
+}
+
+function riskTopicLabel(key) {
+  const i18nKey = `workbench.riskNotice.topics.${key}`
+  return te(i18nKey) ? t(i18nKey) : key
 }
 
 const hasActiveProjectTasks = computed(() => projectTasks.value.some(task =>
@@ -862,6 +880,7 @@ async function loadWorkbench() {
       horizon: String(context.horizon || ''),
       constraints: String(context.constraints || ''),
     }
+    riskTopics.value = Array.isArray(proj?.risk_topics) ? proj.risk_topics : []
     roundtableCount.value = roundtables.value.length || proj?.roundtable_count || 0
     // 智能默认展开最高进展步骤
     if (sessions.value.length) {
@@ -1176,6 +1195,68 @@ onBeforeUnmount(stopTaskPolling)
   border: 1px solid var(--c-line-strong);
   border-left: 4px solid var(--c-ink);
   background: var(--c-bg-softer);
+}
+
+.risk-notice {
+  display: flex;
+  gap: 12px;
+  margin: 0 0 22px;
+  padding: 13px 16px;
+  border: 1px solid #E8C9B8;
+  border-left: 4px solid var(--a-aggressive);
+  background: #FFF9F6;
+  color: var(--c-ink-2);
+}
+
+.risk-notice-mark {
+  flex: 0 0 auto;
+  width: 20px;
+  height: 20px;
+  border: 1px solid var(--a-aggressive);
+  border-radius: 50%;
+  color: var(--a-aggressive);
+  font-size: 13px;
+  font-weight: 800;
+  line-height: 18px;
+  text-align: center;
+}
+
+.risk-notice-copy {
+  min-width: 0;
+}
+
+.risk-notice-title {
+  font-size: 13px;
+  font-weight: 800;
+  color: var(--a-aggressive);
+}
+
+.risk-topic-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 7px;
+}
+
+.risk-topic {
+  padding: 2px 7px;
+  border: 1px solid #E8C9B8;
+  border-radius: var(--r-sm);
+  color: var(--a-aggressive);
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.risk-notice-copy p {
+  margin-top: 7px;
+  color: var(--c-ink-3);
+  font-size: 12px;
+  line-height: 1.6;
+}
+
+.risk-notice-copy .risk-notice-action {
+  color: var(--c-ink-2);
+  font-weight: 700;
 }
 
 .decision-context-kicker {

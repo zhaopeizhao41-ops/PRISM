@@ -44,6 +44,7 @@ from ..models.personal_model import PersonalModelStore
 from ..services.profile_synthesizer import ProfileSynthesizer
 from ..services.demo_project import ensure_demo_project
 from ..utils.privacy import has_cloud_processing_consent, privacy_public_view
+from ..utils.risk import detect_risk_topics
 
 logger = get_logger('prism.profile')
 
@@ -1198,6 +1199,10 @@ def list_profile_projects():
             "name": p.name,
             "is_demo": bool(getattr(p, "is_demo", False)),
             "decision_context": p.decision_context,
+            "risk_topics": detect_risk_topics({
+                "decision_context": p.decision_context,
+                "simulation_requirement": p.simulation_requirement,
+            }),
             "status": p.status,
             "created_at": p.created_at,
             "material_count": len(material_manifest),
@@ -1266,7 +1271,7 @@ def profile_privacy(project_id: str):
                     return jsonify({"success": False, "error": str(exc)}), 409
                 except Exception as exc:
                     logger.exception("撤回云端处理同意时清理图谱失败: project=%s", project_id)
-                    return jsonify({"success": False, "error": f"云端数据清理失败，请稍后重试: {exc}"}), 502
+                    return jsonify({"success": False, "error": t('api.privacyPurgeFailed')}), 502
                 _clear_project_graph_reference(project)
                 project.status = (
                     ProjectStatus.ONTOLOGY_GENERATED

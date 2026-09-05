@@ -38,7 +38,8 @@
     "graphBuildStarted": "Graph build task started. Query progress via /task/{taskId}.",
     "taskNotFound": "Task not found: {id}",
     "graphDeleted": "Graph deleted: {id}",
-    "cloudConsentRequired": "Explicit consent is required before sending project materials to the LLM or Zep Cloud"
+    "cloudConsentRequired": "Explicit consent is required before sending project materials to the LLM or Zep Cloud",
+    "privacyPurgeFailed": "Cloud data cleanup failed. Try again later."
   },
   "progress": {
     "initGraphService": "Initializing graph build service...",
@@ -258,7 +259,26 @@
         "added": "Added",
         "removed": "Removed",
         "changed": "Changed"
-      }
+      },
+      "privacyTitle": "Privacy & data lifecycle",
+      "privacyDescription": "Control whether this profile may use cloud services and when the local project should be cleaned up. API keys never appear here or in exports.",
+      "privacyLoading": "Loading privacy settings…",
+      "privacyConsentLabel": "Allow cloud processing",
+      "privacyConsentNote": "Turning this off purges linked Cloud graphs but keeps local profile files. Consent is required again before generating.",
+      "privacyConsentOn": "Granted",
+      "privacyConsentOff": "Not granted",
+      "privacyRetentionLabel": "Material retention",
+      "privacyRetentionNote": "The window is measured from the project's most recent update; expiry attempts to remove the whole project.",
+      "privacyRetainForever": "Keep until deleted manually",
+      "privacyRetainDays": "Clean up after {n} days",
+      "privacyCloudActive": "Cloud processing is on. New graph, evolution, and roundtable requests may use the approved services.",
+      "privacyCloudOff": "Cloud processing is off. This project will not send materials to the LLM or Zep Cloud.",
+      "privacySave": "Save privacy settings",
+      "privacySaving": "Saving…",
+      "privacySaved": "Privacy settings saved",
+      "privacyLoadFailed": "Privacy settings could not be loaded.",
+      "privacySaveFailed": "Privacy settings could not be saved. Try again.",
+      "privacyRevokeConfirm": "Revoking consent deletes this project's linked Cloud graphs but keeps local files. Continue?"
     },
     "mat": {
       "structured_form": "Structured form",
@@ -618,6 +638,16 @@
     },
     "demoBanner": "This is a local de-identified demo project. It is for browsing the complete workflow and never calls an LLM or uploads to Zep Cloud.",
     "demoCta": "Create your own profile",
+    "riskNotice": {
+      "title": "High-risk topic reminder",
+      "topics": {
+        "finance": "Finance",
+        "health": "Health",
+        "legal": "Legal"
+      },
+      "description": "This decision touches a topic that needs extra verification. PRISM provides scenario simulation, not financial, medical, or legal advice.",
+      "action": "Check critical facts against reliable sources; consult a qualified professional when real loss or personal safety is involved."
+    },
     "navLink": "Workbench",
     "tabWorkbench": "Workbench",
     "tabGraph": "Graph",
