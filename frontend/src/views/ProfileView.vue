@@ -532,13 +532,19 @@ function collectEvidenceItems(value, path = [], output = []) {
   }
   if (!value || typeof value !== 'object') return output
 
-  if (Array.isArray(value.evidence_refs) && value.evidence_refs.length) {
+  const refs = Array.isArray(value.evidence_refs)
+    ? value.evidence_refs.filter(ref => ref && typeof ref === 'object')
+    : []
+  const claim = evidenceClaim(value)
+  const isInference = value.source === 'inference'
+  if (refs.length || (isInference && claim)) {
     output.push({
       id: path.join('.') || 'root',
       label: evidenceFieldLabel(path),
-      claim: evidenceClaim(value),
+      claim,
       source: value.source || 'inference',
-      refs: value.evidence_refs.filter(ref => ref && typeof ref === 'object'),
+      refs,
+      verified: refs.length > 0,
     })
   }
 

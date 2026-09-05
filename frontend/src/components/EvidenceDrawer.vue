@@ -42,12 +42,19 @@
           </div>
 
           <div v-else class="evidence-list">
-            <article v-for="item in items" :key="item.id" class="evidence-item">
+            <article v-for="item in items" :key="item.id" class="evidence-item" :class="{ unverified: !item.verified }">
               <div class="evidence-item-head">
                 <span class="evidence-source">{{ sourceLabel(item.source) }}</span>
                 <span class="evidence-field">{{ item.label }}</span>
+                <span class="evidence-traceability" :class="{ unverified: !item.verified }">
+                  {{ item.verified ? t('evidence.verified') : t('evidence.unverified') }}
+                </span>
               </div>
               <p v-if="item.claim" class="evidence-claim">{{ item.claim }}</p>
+
+              <p v-if="!item.verified" class="evidence-inference-note">
+                {{ t('evidence.inferenceDescription') }}
+              </p>
 
               <div v-for="(evidenceRef, index) in item.refs" :key="`${item.id}-${index}`" class="evidence-reference">
                 <div class="evidence-reference-meta">
@@ -97,9 +104,14 @@ const closeButton = ref(null)
 const titleId = `evidence-title-${Math.random().toString(36).slice(2)}`
 
 const verifiedCount = computed(() => props.items.reduce((count, item) => count + (item.refs?.length || 0), 0))
+const unverifiedCount = computed(() => props.items.filter(item => !item.verified).length)
 const summaryText = computed(() => props.warnings.length
-  ? t('evidence.summaryWithWarnings', { verified: verifiedCount.value, warnings: props.warnings.length })
-  : t('evidence.summary', { verified: verifiedCount.value }))
+  ? t('evidence.summaryWithWarnings', {
+    verified: verifiedCount.value,
+    unverified: unverifiedCount.value,
+    warnings: props.warnings.length,
+  })
+  : t('evidence.summary', { verified: verifiedCount.value, unverified: unverifiedCount.value }))
 
 function close() {
   emit('close')
@@ -283,6 +295,11 @@ onBeforeUnmount(() => document.removeEventListener('keydown', onKeydown))
   border-bottom: none;
 }
 
+.evidence-item.unverified {
+  border-left: 3px solid var(--c-brand);
+  padding-left: 12px;
+}
+
 .evidence-item-head,
 .evidence-reference-meta {
   display: flex;
@@ -302,11 +319,29 @@ onBeforeUnmount(() => document.removeEventListener('keydown', onKeydown))
   font-size: 11px;
 }
 
+.evidence-traceability {
+  margin-left: auto;
+  color: var(--a-conservative);
+  font-size: 10px;
+  font-weight: 700;
+}
+
+.evidence-traceability.unverified {
+  color: var(--c-brand);
+}
+
 .evidence-claim {
   margin: 7px 0 10px;
   color: var(--c-ink-2);
   font-size: 14px;
   line-height: 1.6;
+}
+
+.evidence-inference-note {
+  margin: 6px 0 0;
+  color: var(--c-brand);
+  font-size: 11px;
+  line-height: 1.5;
 }
 
 .evidence-reference {
