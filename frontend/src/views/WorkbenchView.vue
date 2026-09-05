@@ -120,7 +120,7 @@
         <template v-else>
           <!-- 步骤 1：画像 -->
           <section class="step-section" :class="{ 'is-open': expandedStep === 1 }">
-            <div class="step-head" @click="toggleStep(1)">
+            <div class="step-head" role="button" tabindex="0" @click="toggleStep(1)" @keydown.enter="toggleStep(1)" @keydown.space.prevent="toggleStep(1)">
               <span class="step-num">01</span>
               <span class="step-title">{{ t('workbench.stepProfile') }}</span>
               <span v-if="model" class="step-badge done">✓ v{{ model.model_version }}</span>
@@ -152,7 +152,7 @@
 
           <!-- 步骤 2：分支 -->
           <section class="step-section" :class="{ 'is-open': expandedStep === 2 }">
-            <div class="step-head" @click="toggleStep(2)">
+            <div class="step-head" role="button" tabindex="0" @click="toggleStep(2)" @keydown.enter="toggleStep(2)" @keydown.space.prevent="toggleStep(2)">
               <span class="step-num">02</span>
               <span class="step-title">{{ t('workbench.stepBranches') }}</span>
               <span v-if="branchCount" class="step-badge done">{{ t('workbench.branchCount', { n: branchCount }) }}</span>
@@ -166,7 +166,10 @@
                   :key="b.branch_id"
                   class="branch-row"
                   role="button"
+                  tabindex="0"
                   @click="router.push(`/branches/${projectId}`)"
+                  @keydown.enter="router.push(`/branches/${projectId}`)"
+                  @keydown.space.prevent="router.push(`/branches/${projectId}`)"
                 >
                   <span class="archetype-badge" :class="b.archetype">{{ archetypeLabel(b.archetype) }}</span>
                   <span class="branch-positioning">{{ b.positioning }}</span>
@@ -188,7 +191,7 @@
 
           <!-- 步骤 3：宇宙推演（核心工作区） -->
           <section class="step-section" :class="{ 'is-open': expandedStep === 3 }">
-            <div class="step-head" @click="toggleStep(3)">
+            <div class="step-head" role="button" tabindex="0" @click="toggleStep(3)" @keydown.enter="toggleStep(3)" @keydown.space.prevent="toggleStep(3)">
               <span class="step-num">03</span>
               <span class="step-title">{{ t('workbench.stepEvolution') }}</span>
               <span v-if="sessions.length" class="step-badge done">{{ t('workbench.universeCount', { n: sessions.length }) }}</span>
@@ -205,7 +208,7 @@
 
             <div v-else class="universe-list">
               <div v-for="s in sessions" :key="s.session_id" class="universe-card" :class="{ active: activeSessionId === s.session_id }">
-                <div class="uni-head" @click="selectSession(s)">
+                <div class="uni-head" role="button" tabindex="0" @click="selectSession(s)" @keydown.enter="selectSession(s)" @keydown.space.prevent="selectSession(s)">
                   <span class="archetype-badge" :class="s.source_branch_archetype">
                     {{ archetypeLabel(s.source_branch_archetype) }}
                   </span>
@@ -392,7 +395,7 @@
 
           <!-- 步骤 4：圆桌 -->
           <section class="step-section" :class="{ 'is-open': expandedStep === 4 }">
-            <div class="step-head" @click="toggleStep(4)">
+            <div class="step-head" role="button" tabindex="0" @click="toggleStep(4)" @keydown.enter="toggleStep(4)" @keydown.space.prevent="toggleStep(4)">
               <span class="step-num">04</span>
               <span class="step-title">{{ t('workbench.stepRoundtable') }}</span>
               <span v-if="roundtableCount" class="step-badge done">{{ t('workbench.roundtableCount', { n: roundtableCount }) }}</span>
@@ -406,7 +409,10 @@
                   :key="d.dialog_id"
                   class="rt-row"
                   role="button"
+                  tabindex="0"
                   @click="router.push(`/roundtable/${projectId}?dialog=${d.dialog_id}`)"
+                  @keydown.enter="router.push(`/roundtable/${projectId}?dialog=${d.dialog_id}`)"
+                  @keydown.space.prevent="router.push(`/roundtable/${projectId}?dialog=${d.dialog_id}`)"
                 >
                   <span class="rt-topic">{{ d.topic }}</span>
                   <span class="rt-meta">{{ d.participant_count }} {{ t('roundtable.view.people') }} · {{ d.speech_count }} {{ t('roundtable.view.speeches') }}</span>
@@ -1563,6 +1569,14 @@ onBeforeUnmount(stopTaskPolling)
   flex-wrap: wrap;
   cursor: pointer;
   user-select: none;
+}
+
+.step-head:focus-visible,
+.branch-row:focus-visible,
+.rt-row:focus-visible,
+.uni-head:focus-visible {
+  outline: 2px solid var(--c-brand);
+  outline-offset: 3px;
 }
 
 .step-body-action {

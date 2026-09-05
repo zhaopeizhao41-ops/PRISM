@@ -23,7 +23,10 @@
               :key="d.dialog_id"
               class="history-row"
               role="button"
+              tabindex="0"
               @click="openDialog(d.dialog_id)"
+              @keydown.enter="openDialog(d.dialog_id)"
+              @keydown.space.prevent="openDialog(d.dialog_id)"
             >
               <span class="history-topic">{{ d.topic }}</span>
               <div class="history-right">
@@ -239,6 +242,17 @@
             </div>
             <div v-else-if="dialog.status === 'failed'" class="error-text">
               {{ t('roundtable.view.failed') }}{{ dialog.error }}
+            </div>
+            <div v-if="dialog.status === 'running'" class="dialog-task-actions">
+              <button class="ghost-btn" type="button" :disabled="dialogCancelling" @click="cancelRunningDialog">
+                {{ dialogCancelling ? t('roundtable.view.cancelling') : t('roundtable.view.cancelTask') }}
+              </button>
+            </div>
+            <div v-else-if="dialog.status === 'failed'" class="dialog-task-actions">
+              <button class="ghost-btn primary" type="button" :disabled="dialogRetrying" @click="retryDialog">
+                {{ dialogRetrying ? t('roundtable.view.retrying') : t('roundtable.view.retryTask') }}
+              </button>
+              <span class="task-retry-hint">{{ t('roundtable.view.retryHint') }}</span>
             </div>
           </div>
 
@@ -460,6 +474,7 @@ import {
   deleteRoundtable,
   interjectRoundtableSpeech
 } from '../api/roundtable'
+import { cancelTask } from '../api/graph'
 
 const props = defineProps({
   projectId: { type: String, required: true }
@@ -484,6 +499,8 @@ const dialog = ref(null)
 const dialogRunning = computed(() => dialog.value?.status === 'running')
 const deleteDialogTarget = ref(null)
 const deleteDialogBusy = ref(false)
+const dialogCancelling = ref(false)
+const dialogRetrying = ref(false)
 
 const selectedInterjectTarget = ref('')
 const interjectQuestion = ref('')
@@ -542,6 +559,40 @@ async function doDeleteDialog() {
     console.error('Delete roundtable failed', err)
   } finally {
     deleteDialogBusy.value = false
+  }
+}
+
+async function cancelRunningDialog() {
+  if (dialogCancelling.value || !dialog.value?.task_id) return
+  dialogCancelling.value = true
+  try {
+    await cancelTask(dialog.value.task_id)
+    await openDialog(dialog.value.dialog_id)
+  } catch (error) {
+    setupError.value = error?.message || t('roundtable.view.cancelFailed')
+  } finally {
+    dialogCancelling.value = false
+  }
+}
+
+async function retryDialog() {
+  if (dialogRetrying.value || !dialog.value) return
+  dialogRetrying.value = true
+  setupError.value = ''
+  const participants = dialog.value.participants || []
+  try {
+    const res = await openRoundtable({
+      project_id: props.projectId,
+      topic: dialog.value.topic,
+      total_rounds: dialog.value.total_rounds,
+      session_ids: participants.filter(p => p?.type === 'universe' && p.session_id).map(p => p.session_id),
+      person_refs: participants.filter(p => p?.type === 'related' && p.person_ref).map(p => p.person_ref),
+    })
+    await openDialog(res.data.dialog_id)
+  } catch (error) {
+    setupError.value = error?.message || t('roundtable.view.retryFailed')
+  } finally {
+    dialogRetrying.value = false
   }
 }
 let pollTimer = null
@@ -987,6 +1038,11 @@ onBeforeUnmount(stopPolling)
   border-color: var(--c-ink-4);
 }
 
+.history-row:focus-visible {
+  outline: 2px solid var(--c-brand);
+  outline-offset: 2px;
+}
+
 .history-topic {
   font-size: 14px;
   font-weight: 600;
@@ -1000,6 +1056,7 @@ onBeforeUnmount(stopPolling)
   display: flex;
   align-items: center;
   gap: 10px;
+  flex-shrink: 0;
 }
 
 .history-meta {
@@ -1031,6 +1088,20 @@ onBeforeUnmount(stopPolling)
   background: var(--c-bg-soft);
   color: var(--a-aggressive);
   border-color: var(--c-line);
+}
+
+.dialog-task-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin-top: 12px;
+}
+
+.task-retry-hint {
+  color: var(--c-ink-4);
+  font-size: 12px;
+  line-height: 1.5;
 }
 
 /* 设置区 */
@@ -2043,6 +2114,21 @@ onBeforeUnmount(stopPolling)
 }
 
 @media (max-width: 768px) {
+  .history-row {
+    align-items: flex-start;
+    gap: 10px;
+  }
+
+  .history-right {
+    align-items: flex-start;
+    gap: 6px;
+  }
+
+  .history-meta {
+    white-space: normal;
+    text-align: right;
+  }
+
   .core-blocks-grid {
     grid-template-columns: 1fr;
   }

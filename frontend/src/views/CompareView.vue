@@ -6,6 +6,11 @@
     <div class="main-content">
       <div v-if="loading" class="state-box">{{ t('common.loading') }}</div>
 
+      <div v-else-if="loadError" class="state-box error">
+        <p>{{ loadError }}</p>
+        <button class="btn-mini" type="button" @click="loadComparison">{{ t('common.retry') }}</button>
+      </div>
+
       <div v-else-if="!universes.length" class="state-box">
         <p>{{ t('compare.empty') }}</p>
         <button class="btn-mini" type="button" @click="router.push(`/branches/${projectId}`)">
@@ -39,7 +44,10 @@
             :key="'gain' + u.session_id"
             class="val-cell gain-cell"
             role="button"
-            @click="router.push(`/evolution/${u.session_id}`)"
+            tabindex="0"
+            @click="openUniverse(u.session_id)"
+            @keydown.enter="openUniverse(u.session_id)"
+            @keydown.space.prevent="openUniverse(u.session_id)"
           >
             <span class="gain-badge">+ 收益</span>
             <span class="highlight-text">{{ extractGain(u) }}</span>
@@ -51,7 +59,10 @@
             :key="'sac' + u.session_id"
             class="val-cell sacrifice-cell"
             role="button"
-            @click="router.push(`/evolution/${u.session_id}`)"
+            tabindex="0"
+            @click="openUniverse(u.session_id)"
+            @keydown.enter="openUniverse(u.session_id)"
+            @keydown.space.prevent="openUniverse(u.session_id)"
           >
             <span class="sac-badge">- 代价</span>
             <span class="highlight-text">{{ extractSacrifice(u) }}</span>
@@ -65,7 +76,10 @@
               :key="u.session_id + dim.key"
               class="val-cell"
               role="button"
-              @click="router.push(`/evolution/${u.session_id}`)"
+              tabindex="0"
+              @click="openUniverse(u.session_id)"
+              @keydown.enter="openUniverse(u.session_id)"
+              @keydown.space.prevent="openUniverse(u.session_id)"
             >
               {{ u.final_world_state?.[dim.key] || '—' }}
             </div>
@@ -82,7 +96,10 @@
               class="val-cell metric-value-cell"
               :class="`metric-value-${metric.key}`"
               role="button"
-              @click="router.push(`/evolution/${u.session_id}`)"
+              tabindex="0"
+              @click="openUniverse(u.session_id)"
+              @keydown.enter="openUniverse(u.session_id)"
+              @keydown.space.prevent="openUniverse(u.session_id)"
             >
               <strong>{{ metricValue(u, metric.key) }}</strong>
               <span v-if="metricDetail(u, metric.key)" class="metric-detail">
@@ -99,8 +116,9 @@
             class="val-cell snapshot"
             role="button"
             tabindex="0"
-            @click="router.push(`/evolution/${u.session_id}`)"
-            @keydown.enter="router.push(`/evolution/${u.session_id}`)"
+            @click="openUniverse(u.session_id)"
+            @keydown.enter="openUniverse(u.session_id)"
+            @keydown.space.prevent="openUniverse(u.session_id)"
           >
             {{ u.final_snapshot || '—' }}
           </div>
@@ -170,6 +188,7 @@ const { t, te } = useI18n()
 
 const loading = ref(true)
 const universes = ref([])
+const loadError = ref('')
 
 const dims = [
   { key: 'career' }, { key: 'family' },
@@ -230,6 +249,24 @@ function extractSacrifice(u) {
   return '维持现状与机会成本'
 }
 
+function openUniverse(sessionId) {
+  if (sessionId) router.push(`/evolution/${sessionId}`)
+}
+
+async function loadComparison() {
+  loading.value = true
+  loadError.value = ''
+  try {
+    const res = await compareEvolutionSessions(props.projectId)
+    universes.value = res.data || []
+  } catch (error) {
+    universes.value = []
+    loadError.value = error?.message || t('compare.loadFailed')
+  } finally {
+    loading.value = false
+  }
+}
+
 function displayNumber(value, suffix = '') {
   return value === null || value === undefined || value === '' ? t('compare.metric.unknown') : `${value}${suffix}`
 }
@@ -282,16 +319,7 @@ function metricDetail(universe, key) {
   return details.join(' · ')
 }
 
-onMounted(async () => {
-  try {
-    const res = await compareEvolutionSessions(props.projectId)
-    universes.value = res.data || []
-  } catch {
-    universes.value = []
-  } finally {
-    loading.value = false
-  }
-})
+onMounted(loadComparison)
 </script>
 
 <style scoped>
@@ -509,6 +537,10 @@ onMounted(async () => {
   background: #FEF2F2;
 }
 
+.state-box.error {
+  color: var(--c-brand);
+}
+
 .dim-cell.metric-cell {
   color: var(--c-ink-3);
 }
@@ -528,6 +560,13 @@ onMounted(async () => {
 
 .val-cell:hover {
   background: var(--c-brand-tint);
+}
+
+.val-cell:focus-visible {
+  outline: 2px solid var(--c-brand);
+  outline-offset: -2px;
+  position: relative;
+  z-index: 1;
 }
 
 .val-cell.gain-cell {

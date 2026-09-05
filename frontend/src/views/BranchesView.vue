@@ -9,6 +9,11 @@
         <p>{{ t('common.loading') }}</p>
       </div>
 
+      <div v-else-if="loadError" class="state-box error">
+        <p>{{ loadError }}</p>
+        <button class="generate-btn" type="button" @click="loadBranches">{{ t('common.retry') }}</button>
+      </div>
+
       <div v-else-if="!branchesData" class="state-box">
         <p>{{ loadError || t('branch.view.notGenerated') }}</p>
         <button class="generate-btn" type="button" @click="startGenerate">
@@ -258,7 +263,10 @@
             :key="s.session_id"
             class="session-row"
             role="button"
+            tabindex="0"
             @click="router.push(`/evolution/${s.session_id}`)"
+            @keydown.enter="router.push(`/evolution/${s.session_id}`)"
+            @keydown.space.prevent="router.push(`/evolution/${s.session_id}`)"
           >
             <span class="archetype-badge" :class="s.source_branch_archetype">
               {{ archetypeLabel(s.source_branch_archetype) }}
@@ -344,6 +352,24 @@ function likelihoodLabel(key) {
 function kindLabel(key) {
   const i18nKey = `branch.kind.${key}`
   return te(i18nKey) ? t(i18nKey) : (key || '')
+}
+
+async function loadBranches() {
+  loading.value = true
+  loadError.value = ''
+  try {
+    const res = await getBranches(props.projectId)
+    branchesData.value = res.data
+  } catch (error) {
+    branchesData.value = null
+    // A missing batch is an expected first-use state; other failures need a
+    // visible recovery path instead of looking like an empty project.
+    if (error?.response?.status !== 404) {
+      loadError.value = error?.message || t('branch.view.loadFailed')
+    }
+  } finally {
+    loading.value = false
+  }
 }
 
 function displayBranchValue(value) {
@@ -437,16 +463,8 @@ async function startGenerate() {
 }
 
 onMounted(async () => {
-  try {
-    const res = await getBranches(props.projectId)
-    branchesData.value = res.data
-  } catch (e) {
-    // 404 = 尚未生成，页面会显示生成按钮
-    loadError.value = ''
-  } finally {
-    await loadSessions()
-    loading.value = false
-  }
+  await loadBranches()
+  await loadSessions()
 })
 
 onUnmounted(() => {
@@ -1186,6 +1204,12 @@ onUnmounted(() => {
 
 .session-row:hover {
   background: var(--c-bg-softer);
+}
+
+.session-row:focus-visible,
+.branch-matrix-button:focus-visible {
+  outline: 2px solid var(--c-brand);
+  outline-offset: 2px;
 }
 
 .session-positioning {
