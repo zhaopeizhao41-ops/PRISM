@@ -383,9 +383,95 @@
       <div class="submit-bar">
         <p v-if="!hasAnyInput" class="submit-warn">{{ t('profile.create.emptyWarn') }}</p>
         <p v-else-if="!cloudConsent" class="submit-warn">{{ t('profile.create.cloudConsentRequired') }}</p>
-        <button class="submit-btn" :disabled="!canSubmit" @click="handleGenerate">
+        <button class="submit-btn" :disabled="!canSubmit" @click="openReview">
           {{ appendMode ? t('profile.create.regenerate') : t('profile.create.submit') }}
         </button>
+      </div>
+
+      <div
+        v-if="reviewOpen"
+        class="review-backdrop"
+        role="presentation"
+        @click.self="closeReview"
+        @keydown.esc="closeReview"
+      >
+        <section
+          class="review-dialog"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="review-dialog-title"
+          @click.stop
+        >
+          <header class="review-header">
+            <div>
+              <div class="review-kicker">{{ t('profile.create.reviewKicker') }}</div>
+              <h2 id="review-dialog-title">{{ t('profile.create.reviewTitle') }}</h2>
+            </div>
+            <button
+              class="review-close"
+              type="button"
+              :aria-label="t('profile.create.reviewClose')"
+              @click="closeReview"
+            >
+              ×
+            </button>
+          </header>
+          <p class="review-description">{{ t('profile.create.reviewDescription') }}</p>
+
+          <div class="review-summary">
+            <div class="review-summary-row">
+              <span>{{ t('profile.create.reviewDecision') }}</span>
+              <strong v-if="decisionContext.question">{{ decisionContext.question }}</strong>
+              <strong v-else class="review-muted">{{ t('profile.create.reviewNoDecision') }}</strong>
+            </div>
+            <div class="review-summary-grid">
+              <div class="review-summary-item">
+                <span>{{ t('profile.create.reviewForm') }}</span>
+                <strong>{{ reviewFormFieldCount }} {{ t('profile.create.reviewItemUnit') }}</strong>
+              </div>
+              <div class="review-summary-item">
+                <span>{{ t('profile.create.reviewPasted') }}</span>
+                <strong>{{ reviewPasteLength.toLocaleString() }} {{ t('profile.create.reviewCharUnit') }}</strong>
+              </div>
+              <div class="review-summary-item">
+                <span>{{ t('profile.create.reviewFile') }}</span>
+                <strong>{{ selectedFiles.length }} {{ t('profile.create.reviewItemUnit') }}</strong>
+              </div>
+              <div v-if="existingMaterials.length" class="review-summary-item">
+                <span>{{ t('profile.create.reviewExisting') }}</span>
+                <strong>{{ existingMaterials.length }} {{ t('profile.create.reviewItemUnit') }}</strong>
+              </div>
+            </div>
+          </div>
+
+          <div v-if="pastedText.trim()" class="review-text-preview">
+            <div class="review-section-title">{{ t('profile.create.reviewTextPreview') }}</div>
+            <p>{{ reviewPastePreview }}</p>
+          </div>
+
+          <div v-if="selectedFiles.length" class="review-file-list">
+            <div class="review-section-title">{{ t('profile.create.reviewFilesTitle') }}</div>
+            <div v-for="file in selectedFiles" :key="`${file.name}-${file.lastModified}`" class="review-file-row">
+              <span class="file-badge" :class="getFileBadgeClass(file.name)">{{ getFileBadge(file.name) }}</span>
+              <span class="review-file-name">{{ file.name }}</span>
+              <span class="file-size">{{ (file.size / 1024).toFixed(1) }} KB</span>
+            </div>
+          </div>
+
+          <p class="review-privacy">
+            <span class="review-privacy-mark" aria-hidden="true">✓</span>
+            {{ t('profile.create.reviewPrivacy') }}
+          </p>
+
+          <footer class="review-actions">
+            <button class="btn-mini" type="button" @click="closeReview">
+              {{ t('profile.create.reviewBack') }}
+            </button>
+            <button class="submit-btn review-confirm" type="button" @click="confirmGenerate">
+              {{ t('profile.create.reviewConfirm') }}
+            </button>
+          </footer>
+        </section>
       </div>
     </div>
 
@@ -499,6 +585,7 @@ const isDragOver = ref(false)
 const fileInput = ref(null)
 const existingMaterials = ref([])
 const cloudConsent = ref(false)
+const reviewOpen = ref(false)
 const decisionHorizonOptions = ['three_months', 'one_year', 'three_years', 'unspecified']
 const decisionContext = reactive({
   question: '',
@@ -583,6 +670,12 @@ const hasFormInput = computed(() => Object.keys(buildFormPayload()).length > 0)
 const hasMaterialInput = computed(() => !!(pastedText.value.trim() || selectedFiles.value.length))
 const hasAnyInput = computed(() => hasFormInput.value || hasMaterialInput.value)
 const canSubmit = computed(() => hasAnyInput.value && cloudConsent.value)
+const reviewFormFieldCount = computed(() => Object.keys(buildFormPayload()).length)
+const reviewPasteLength = computed(() => pastedText.value.trim().length)
+const reviewPastePreview = computed(() => {
+  const text = pastedText.value.trim()
+  return text.length > 360 ? `${text.slice(0, 360)}…` : text
+})
 
 function toggleTag(tag) {
   const idx = form.self_tags.indexOf(tag)
@@ -768,6 +861,20 @@ watch(materialMode, value => {
 })
 
 // ============== 提交流程 ==============
+
+function openReview() {
+  if (!canSubmit.value) return
+  reviewOpen.value = true
+}
+
+function closeReview() {
+  reviewOpen.value = false
+}
+
+function confirmGenerate() {
+  reviewOpen.value = false
+  handleGenerate()
+}
 
 function isDuplicateError(e) {
   return /重复|duplicate/i.test(e?.message || '')
@@ -1570,6 +1677,197 @@ onMounted(async () => {
   box-shadow: none;
 }
 
+.review-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 200;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+  background: rgba(20, 18, 15, 0.48);
+}
+
+.review-dialog {
+  width: min(620px, 100%);
+  max-height: min(760px, calc(100vh - 40px));
+  overflow-y: auto;
+  padding: 24px;
+  border: 1px solid var(--c-ink);
+  border-radius: var(--r-md);
+  background: var(--c-paper);
+  box-shadow: 8px 8px 0 rgba(20, 18, 15, 0.16);
+}
+
+.review-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.review-kicker {
+  margin-bottom: 5px;
+  color: var(--c-brand);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 1.2px;
+  text-transform: uppercase;
+}
+
+.review-header h2 {
+  font-size: 20px;
+  line-height: 1.35;
+}
+
+.review-close {
+  width: 32px;
+  height: 32px;
+  flex: 0 0 32px;
+  border: 1px solid var(--c-line-strong);
+  background: var(--c-paper);
+  color: var(--c-ink);
+  font-size: 22px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.review-close:hover {
+  border-color: var(--c-brand);
+  color: var(--c-brand);
+}
+
+.review-description {
+  margin: 10px 0 18px;
+  color: var(--c-ink-3);
+  font-size: 12px;
+  line-height: 1.6;
+}
+
+.review-summary {
+  padding: 14px;
+  border: 1px solid var(--c-line-strong);
+  background: var(--c-bg-softer);
+}
+
+.review-summary-row {
+  display: grid;
+  grid-template-columns: 92px minmax(0, 1fr);
+  gap: 12px;
+  padding-bottom: 12px;
+  border-bottom: 1px solid var(--c-line-soft);
+}
+
+.review-summary-row > span,
+.review-summary-item > span {
+  color: var(--c-ink-4);
+  font-size: 11px;
+}
+
+.review-summary-row strong {
+  min-width: 0;
+  overflow-wrap: anywhere;
+  color: var(--c-ink);
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 1.5;
+}
+
+.review-muted {
+  color: var(--c-ink-4) !important;
+  font-weight: 400 !important;
+}
+
+.review-summary-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+  padding-top: 12px;
+}
+
+.review-summary-item strong {
+  display: block;
+  margin-top: 3px;
+  color: var(--c-ink);
+  font-size: 13px;
+}
+
+.review-text-preview,
+.review-file-list {
+  margin-top: 16px;
+}
+
+.review-section-title {
+  margin-bottom: 7px;
+  color: var(--c-ink-2);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.review-text-preview p {
+  max-height: 130px;
+  overflow-y: auto;
+  margin: 0;
+  padding: 10px 12px;
+  border-left: 3px solid var(--c-brand);
+  background: var(--c-bg-softer);
+  color: var(--c-ink-3);
+  font-size: 12px;
+  line-height: 1.6;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.review-file-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  padding: 7px 0;
+  border-bottom: 1px solid var(--c-line-soft);
+}
+
+.review-file-row:last-child {
+  border-bottom: none;
+}
+
+.review-file-name {
+  min-width: 0;
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 12px;
+}
+
+.review-privacy {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  margin: 18px 0 0;
+  color: var(--c-ink-3);
+  font-size: 12px;
+  line-height: 1.55;
+}
+
+.review-privacy-mark {
+  flex: 0 0 auto;
+  color: #057A55;
+  font-weight: 700;
+}
+
+.review-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+  margin-top: 22px;
+}
+
+.review-confirm {
+  padding-left: 22px;
+  padding-right: 22px;
+}
+
 /* 进度态 */
 .progress-content {
   display: flex;
@@ -1685,6 +1983,25 @@ onMounted(async () => {
   .materials-controls {
     grid-template-columns: 1fr;
     flex-direction: column;
+  }
+  .review-backdrop {
+    align-items: flex-end;
+    padding: 0;
+  }
+  .review-dialog {
+    max-height: calc(100vh - 12px);
+    padding: 20px 16px 18px;
+    border-bottom: none;
+    border-radius: var(--r-md) var(--r-md) 0 0;
+  }
+  .review-summary-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .review-actions {
+    position: sticky;
+    bottom: -18px;
+    padding: 12px 0 2px;
+    background: var(--c-paper);
   }
 }
 </style>
