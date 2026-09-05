@@ -1,7 +1,7 @@
 # ===========================================
 # PRISM Backend Dependencies
 # ===========================================
-# Python 3.11+ required
+# Python 3.11-3.13 supported
 # Install: pip install -r requirements.txt
 # ===========================================
 

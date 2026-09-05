@@ -2,7 +2,7 @@
 name = "prism-backend"
 version = "0.1.0"
 description = "PRISM - 个人人生推演引擎：人生充满混沌，但我们始终拥有选择"
-requires-python = ">=3.11,<3.13"
+requires-python = ">=3.11,<3.14"
 license = { text = "AGPL-3.0" }
 authors = [
     { name = "PRISM Team" }

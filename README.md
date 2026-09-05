@@ -4,10 +4,10 @@
 
 <p align="center">
   <a href="https://github.com/zhaopeizhao41-ops/PRISM"><img src="https://img.shields.io/badge/PRISM-v0.2.0-FF4D00?style=for-the-badge&logo=target&logoColor=white" alt="PRISM Version" /></a>
-  <a href="https://www.python.org/"><img src="https://img.shields.io/badge/Python-3.11%20%7C%203.12-111111?style=for-the-badge&logo=python&logoColor=white" alt="Python Version" /></a>
+  <a href="https://www.python.org/"><img src="https://img.shields.io/badge/Python-3.11%20%7C%203.12%20%7C%203.13-111111?style=for-the-badge&logo=python&logoColor=white" alt="Python Version" /></a>
   <a href="https://vuejs.org/"><img src="https://img.shields.io/badge/Vue-3.x%20%2B%20Vite-42B883?style=for-the-badge&logo=vuedotjs&logoColor=white" alt="Vue 3" /></a>
   <a href="https://github.com/zhaopeizhao41-ops/PRISM/blob/main/LICENSE"><img src="https://img.shields.io/badge/License-AGPL--3.0-111111?style=for-the-badge" alt="License" /></a>
-  <img src="https://img.shields.io/badge/Tests-129%20Passed-057A55?style=for-the-badge&logo=pytest&logoColor=white" alt="Tests" />
+  <img src="https://img.shields.io/badge/Tests-171%20Passed-057A55?style=for-the-badge&logo=pytest&logoColor=white" alt="Tests" />
   <img src="https://img.shields.io/badge/Multimodal-Vision%20Ready-6C2BD9?style=for-the-badge&logo=openai&logoColor=white" alt="Multimodal" />
 </p>
 
@@ -138,7 +138,7 @@ PRISM supports zero-friction ingestion across 17+ everyday personal document and
 ### Prerequisites
 
 - **Node.js**: $\ge 18.0.0$
-- **Python**: $\ge 3.11, \le 3.12$
+- **Python**: $\ge 3.11, < 3.14$ (3.11, 3.12, and 3.13 tested)
 - **uv**: Fast Python package manager ([Installation Guide](https://docs.astral.sh/uv/))
 - **Zep Cloud API Key**: [Zep Cloud Console](https://app.getzep.com/)
 - **LLM API Key**: OpenAI-compatible API key (e.g. DeepSeek, DashScope Qwen, OpenAI)
