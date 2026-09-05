@@ -119,10 +119,15 @@ STEP2_PROMPT = """基于以下个人画像与已确定的分支方向，展开�
 
 推演要求：
 - time_span: 这个分支合理的时间跨度（如 "1-3年"）
+- target: 这个分支要验证或争取的具体目标（一句话）
 - narrative: 300 字以内的分支叙事——从当前状态出发，这个人会如何走到分支终点
 - timeline: 按时间正序的 3-5 个阶段节点，每个节点包含 period / event / state_change
 - milestones: 2-4 个关键里程碑（成就或挫折）
 - risks: 2-4 个主要风险，每个带 likelihood（high/medium/low）和 mitigation（一句话应对）
+- costs: 这个分支明确要付出的现实代价或放弃（2-4 条，不要写泛泛的风险）
+- prerequisites: 启动或维持这个分支必须先满足的条件（2-4 条）
+- evidence_gaps: 画像中尚未验证、但会显著影响判断的资料缺口（0-4 条）
+- reversal_variables: 1-3 个可逆转变量，每项包含 variable / signal / action
 - capability_gaps: 这个分支要求但此人尚不具备的能力/资源
 - relationship_impacts: 画像中的关系人在此分支下受到的影响（1-3 条）
 - fit_score: 0-100 的适配度打分（画像证据对此分支的支持程度）
@@ -136,10 +141,15 @@ STEP2_PROMPT = """基于以下个人画像与已确定的分支方向，展开�
   "archetype": "{archetype}",
   "positioning": "{positioning}",
   "time_span": "",
+  "target": "",
   "narrative": "",
   "timeline": [{{"period": "", "event": "", "state_change": ""}}],
   "milestones": [{{"milestone_kind": "turning_point|achievement|setback", "summary": "", "impact": ""}}],
   "risks": [{{"risk": "", "likelihood": "high|medium|low", "mitigation": ""}}],
+  "costs": [""],
+  "prerequisites": [""],
+  "evidence_gaps": [""],
+  "reversal_variables": [{{"variable": "", "signal": "", "action": ""}}],
   "capability_gaps": [""],
   "relationship_impacts": [{{"person": "", "impact": ""}}],
   "fit_score": 0,
@@ -255,6 +265,10 @@ class BranchGenerator:
             # 冗余字段兜底
             branch.setdefault("archetype", archetype)
             branch.setdefault("positioning", direction.get("positioning", ""))
+            branch.setdefault("target", branch.get("ending_state", ""))
+            for field in ("costs", "prerequisites", "evidence_gaps", "reversal_variables"):
+                if not isinstance(branch.get(field), list):
+                    branch[field] = []
             branch["rationale"] = direction.get("rationale", "")
             valid_goals = {g.get("goal_id"): g for g in (personal_model.get("goals") or []) if isinstance(g, dict) and g.get("goal_id")}
             refs = [r for r in (branch.get("goal_refs") or []) if r in valid_goals]

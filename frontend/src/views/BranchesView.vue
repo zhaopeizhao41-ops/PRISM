@@ -51,6 +51,57 @@
           </button>
         </div>
 
+        <!-- 分支代价/约束速览：先比较路径，再进入单条详情 -->
+        <section v-if="branchesData.branches?.length > 1" class="branch-comparison-section">
+          <div class="section-title">{{ t('branch.view.comparisonTitle') }}</div>
+          <div class="branch-matrix" role="table" :style="{ '--branch-count': branchesData.branches.length }">
+            <div class="branch-matrix-row branch-matrix-head" role="row">
+              <span class="branch-matrix-label" aria-hidden="true"></span>
+              <button
+                v-for="(b, i) in branchesData.branches"
+                :key="`head-${i}`"
+                class="branch-matrix-value branch-matrix-button"
+                :class="{ active: activeIndex === i }"
+                type="button"
+                role="columnheader"
+                @click="activeIndex = i"
+              >
+                {{ archetypeLabel(b.archetype) }}
+              </button>
+            </div>
+            <div class="branch-matrix-row" role="row">
+              <span class="branch-matrix-label">{{ t('branch.view.fitScore') }}</span>
+              <span v-for="(b, i) in branchesData.branches" :key="`fit-${i}`" class="branch-matrix-value" role="cell">
+                {{ displayBranchValue(b.fit_score) }}
+              </span>
+            </div>
+            <div class="branch-matrix-row" role="row">
+              <span class="branch-matrix-label">{{ t('branch.view.costs') }}</span>
+              <span v-for="(b, i) in branchesData.branches" :key="`cost-${i}`" class="branch-matrix-value" role="cell">
+                {{ listCount(b, 'costs') }}
+              </span>
+            </div>
+            <div class="branch-matrix-row" role="row">
+              <span class="branch-matrix-label">{{ t('branch.view.risks') }}</span>
+              <span v-for="(b, i) in branchesData.branches" :key="`risk-${i}`" class="branch-matrix-value" role="cell">
+                {{ riskCount(b) }}
+              </span>
+            </div>
+            <div class="branch-matrix-row" role="row">
+              <span class="branch-matrix-label">{{ t('branch.view.prerequisites') }}</span>
+              <span v-for="(b, i) in branchesData.branches" :key="`pre-${i}`" class="branch-matrix-value" role="cell">
+                {{ prerequisiteCount(b) }}
+              </span>
+            </div>
+            <div class="branch-matrix-row" role="row">
+              <span class="branch-matrix-label">{{ t('branch.view.evidenceGaps') }}</span>
+              <span v-for="(b, i) in branchesData.branches" :key="`gap-${i}`" class="branch-matrix-value" role="cell">
+                {{ listCount(b, 'evidence_gaps') }}
+              </span>
+            </div>
+          </div>
+        </section>
+
         <!-- 当前分支 -->
         <div v-if="activeBranch" class="branch-detail">
           <!-- 定位条 -->
@@ -72,6 +123,53 @@
             <div class="section-title">{{ t('branch.view.narrative') }} · {{ activeBranch.time_span }}</div>
             <p class="narrative-text">{{ activeBranch.narrative }}</p>
             <p class="rationale-text">{{ t('branch.view.whyThis') }}{{ activeBranch.rationale }}</p>
+          </section>
+
+          <!-- 目标、代价、前置条件、证据缺口与可逆变量 -->
+          <section class="branch-section tradeoff-section">
+            <div class="section-title">{{ t('branch.view.tradeoffMatrix') }}</div>
+            <div class="tradeoff-matrix">
+              <div class="tradeoff-row">
+                <span class="tradeoff-label">{{ t('branch.view.target') }}</span>
+                <span class="tradeoff-value">{{ activeBranch.target || activeBranch.ending_state || t('branch.view.noData') }}</span>
+              </div>
+              <div class="tradeoff-row">
+                <span class="tradeoff-label">{{ t('branch.view.costs') }}</span>
+                <div class="tradeoff-value">
+                  <ul v-if="listValues(activeBranch, 'costs').length" class="tradeoff-list">
+                    <li v-for="(item, i) in listValues(activeBranch, 'costs')" :key="`cost-${i}`">{{ item }}</li>
+                  </ul>
+                  <span v-else>{{ t('branch.view.noData') }}</span>
+                </div>
+              </div>
+              <div class="tradeoff-row">
+                <span class="tradeoff-label">{{ t('branch.view.prerequisites') }}</span>
+                <div class="tradeoff-value">
+                  <ul v-if="prerequisiteValues(activeBranch).length" class="tradeoff-list">
+                    <li v-for="(item, i) in prerequisiteValues(activeBranch)" :key="`pre-detail-${i}`">{{ item }}</li>
+                  </ul>
+                  <span v-else>{{ t('branch.view.noData') }}</span>
+                </div>
+              </div>
+              <div class="tradeoff-row">
+                <span class="tradeoff-label">{{ t('branch.view.evidenceGaps') }}</span>
+                <div class="tradeoff-value">
+                  <ul v-if="listValues(activeBranch, 'evidence_gaps').length" class="tradeoff-list warning-list">
+                    <li v-for="(item, i) in listValues(activeBranch, 'evidence_gaps')" :key="`gap-detail-${i}`">{{ item }}</li>
+                  </ul>
+                  <span v-else>{{ t('branch.view.noData') }}</span>
+                </div>
+              </div>
+              <div class="tradeoff-row">
+                <span class="tradeoff-label">{{ t('branch.view.reversalVariables') }}</span>
+                <div class="tradeoff-value">
+                  <ul v-if="reversalValues(activeBranch).length" class="tradeoff-list">
+                    <li v-for="(item, i) in reversalValues(activeBranch)" :key="`reverse-${i}`">{{ item }}</li>
+                  </ul>
+                  <span v-else>{{ t('branch.view.noData') }}</span>
+                </div>
+              </div>
+            </div>
           </section>
 
           <!-- 时间线 -->
@@ -246,6 +344,51 @@ function likelihoodLabel(key) {
 function kindLabel(key) {
   const i18nKey = `branch.kind.${key}`
   return te(i18nKey) ? t(i18nKey) : (key || '')
+}
+
+function displayBranchValue(value) {
+  return value === null || value === undefined || value === '' ? '—' : value
+}
+
+function listValues(branch, field) {
+  const value = branch?.[field]
+  return Array.isArray(value) ? value.filter(item => typeof item === 'string' && item.trim()) : []
+}
+
+function prerequisiteValues(branch) {
+  const explicit = listValues(branch, 'prerequisites')
+  return explicit.length ? explicit : listValues(branch, 'capability_gaps')
+}
+
+function listCount(branch, field) {
+  const count = listValues(branch, field).length
+  return count ? String(count) : '—'
+}
+
+function prerequisiteCount(branch) {
+  const count = prerequisiteValues(branch).length
+  return count ? String(count) : '—'
+}
+
+function riskCount(branch) {
+  const risks = Array.isArray(branch?.risks) ? branch.risks.filter(Boolean) : []
+  return risks.length ? String(risks.length) : '—'
+}
+
+function reversalValues(branch) {
+  const values = Array.isArray(branch?.reversal_variables) ? branch.reversal_variables : []
+  return values.map(item => {
+    if (typeof item === 'string') return item.trim()
+    if (!item || typeof item !== 'object') return ''
+    const variable = String(item.variable || '').trim()
+    const signal = String(item.signal || '').trim()
+    const action = String(item.action || '').trim()
+    if (!variable && !signal && !action) return ''
+    const parts = [variable]
+    if (signal) parts.push(`${t('branch.view.reversalSignal')}: ${signal}`)
+    if (action) parts.push(`${t('branch.view.reversalAction')}: ${action}`)
+    return parts.filter(Boolean).join(' · ')
+  }).filter(Boolean)
 }
 
 function sleep(ms) {
@@ -468,6 +611,68 @@ onUnmounted(() => {
   padding-bottom: 4px;
 }
 
+.branch-comparison-section {
+  margin: 0 0 20px;
+  padding: 14px 0 16px;
+  border-top: 2px solid var(--c-ink);
+  border-bottom: 1px solid var(--c-line-strong);
+  overflow-x: auto;
+}
+
+.branch-matrix {
+  min-width: 520px;
+}
+
+.branch-matrix-row {
+  display: grid;
+  grid-template-columns: minmax(110px, 0.8fr) repeat(var(--branch-count), minmax(84px, 1fr));
+  border-bottom: 1px solid var(--c-line-soft);
+}
+
+.branch-matrix-row:last-child {
+  border-bottom: none;
+}
+
+.branch-matrix-label,
+.branch-matrix-value {
+  min-width: 0;
+  padding: 9px 10px;
+  color: var(--c-ink-3);
+  font-size: 11px;
+  line-height: 1.45;
+  overflow-wrap: anywhere;
+}
+
+.branch-matrix-label {
+  background: var(--c-bg-softer);
+  font-weight: 700;
+}
+
+.branch-matrix-value {
+  text-align: center;
+  color: var(--c-ink-2);
+  font-weight: 600;
+}
+
+.branch-matrix-head .branch-matrix-value {
+  color: var(--c-brand);
+  font-weight: 700;
+}
+
+.branch-matrix-button {
+  border: 0;
+  border-left: 1px solid var(--c-line-soft);
+  background: var(--c-paper);
+  cursor: pointer;
+  font-family: inherit;
+}
+
+.branch-matrix-button:hover,
+.branch-matrix-button.active {
+  background: var(--c-brand-tint);
+  color: var(--c-brand-deep);
+}
+
 .branch-tab {
   display: flex;
   flex-direction: column;
@@ -643,6 +848,51 @@ onUnmounted(() => {
   color: var(--c-ink-4);
   border-top: 1px dashed var(--c-line-soft);
   padding-top: 10px;
+}
+
+.tradeoff-section {
+  padding-top: 18px;
+  padding-bottom: 18px;
+}
+
+.tradeoff-matrix {
+  border-top: 1px solid var(--c-line-soft);
+}
+
+.tradeoff-row {
+  display: grid;
+  grid-template-columns: minmax(112px, 0.28fr) minmax(0, 1fr);
+  gap: 16px;
+  padding: 11px 0;
+  border-bottom: 1px solid var(--c-line-soft);
+}
+
+.tradeoff-row:last-child {
+  border-bottom: none;
+}
+
+.tradeoff-label {
+  color: var(--c-ink-4);
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 1.5;
+}
+
+.tradeoff-value {
+  min-width: 0;
+  color: var(--c-ink-2);
+  font-size: 13px;
+  line-height: 1.6;
+  overflow-wrap: anywhere;
+}
+
+.tradeoff-list {
+  margin: 0;
+  padding-left: 18px;
+}
+
+.tradeoff-list.warning-list {
+  color: var(--c-brand);
 }
 
 /* 时间线 */

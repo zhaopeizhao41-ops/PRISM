@@ -74,6 +74,11 @@ def test_generate_backfills_missing_fields(generator, personal_model, monkeypatc
     assert branch["archetype"] == "builder"
     assert branch["positioning"] == "独立开发"
     assert branch["rationale"] == "r"
+    assert branch["target"] == ""
+    assert branch["costs"] == []
+    assert branch["prerequisites"] == []
+    assert branch["evidence_gaps"] == []
+    assert branch["reversal_variables"] == []
 
 
 def test_generate_raises_without_directions(generator, personal_model, monkeypatch):
