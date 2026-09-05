@@ -1,5 +1,6 @@
 """Lightweight safety-topic detection for user-facing decision warnings."""
 
+import re
 from typing import Any, Dict, Iterable, List
 
 
@@ -40,5 +41,13 @@ def detect_risk_topics(value: Any) -> List[str]:
     return [
         topic
         for topic, keywords in _TOPIC_KEYWORDS.items()
-        if any(keyword.casefold() in text for keyword in keywords)
+        if any(_keyword_matches(text, keyword) for keyword in keywords)
     ]
+
+
+def _keyword_matches(text: str, keyword: str) -> bool:
+    """Match English terms as words while retaining substring matching for CJK."""
+    normalized = keyword.casefold()
+    if normalized.isascii() and any(char.isalpha() for char in normalized):
+        return re.search(rf"\b{re.escape(normalized)}\b", text) is not None
+    return normalized in text

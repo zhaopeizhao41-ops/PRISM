@@ -20,6 +20,7 @@ def client(tmp_path, monkeypatch):
         ("这个症状是否需要去看医生？", ["health"]),
         ("合同纠纷是否应该咨询律师？", ["legal"]),
         ("我想换一个城市生活。", []),
+        ("I want to take a taxi across town.", []),
         ("Should I invest while managing a medical treatment contract?", ["finance", "health", "legal"]),
     ],
 )
