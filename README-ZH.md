@@ -137,7 +137,7 @@ PRISM 支持 17 种以上常见个人生活资料与多媒体格式的无门槛�
 
 ### 环境依赖
 
-- **Node.js**: $\ge 18.0.0$
+- **Node.js**: $\ge 20.19.0$（Vite 7 要求，22.12+ 亦可）
 - **Python**: $\ge 3.11, < 3.14$（已测试 3.11、3.12 和 3.13）
 - **uv**: 现代高性能 Python 包管理器（[安装指南](https://docs.astral.sh/uv/)）
 - **Zep Cloud API Key**: [Zep Cloud 控制台](https://app.getzep.com/)

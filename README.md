@@ -137,7 +137,7 @@ PRISM supports zero-friction ingestion across 17+ everyday personal document and
 
 ### Prerequisites
 
-- **Node.js**: $\ge 18.0.0$
+- **Node.js**: $\ge 20.19.0$ (Vite 7 requirement; 22.12+ also supported)
 - **Python**: $\ge 3.11, < 3.14$ (3.11, 3.12, and 3.13 tested)
 - **uv**: Fast Python package manager ([Installation Guide](https://docs.astral.sh/uv/))
 - **Zep Cloud API Key**: [Zep Cloud Console](https://app.getzep.com/)
