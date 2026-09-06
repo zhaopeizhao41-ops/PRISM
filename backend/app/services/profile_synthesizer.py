@@ -340,9 +340,13 @@ STAGE2_PROMPT = """请合成以下叙事分区，输出紧凑精炼的 JSON：
 }}
 分区说明：
 - episodic_anchors（Character-LLM 经历剧场）：提取 2-3 个关键经历剧场，具备具体场景、冲突、情绪印记与长远认知影响，精炼表达
+- relationships 是本人（第一人称叙述者、这份资料的作者）身边的重要关系人：本人自己严禁出现在其中
+- 图谱实体的 relation_kind=self 标记只是分块抽取的局部归一化，噪声常见——叙述者别名、被大量记述的核心关系人都可能被误标为 self；判断某人是否本人，以「这份资料是谁写的」为准（第一人称"我"是谁），不要盲信 self 标记
 - 长度约束（严禁冗长，每项一两句话）：timeline 最多 4 条；milestones 最多 3 条；relationships 最多 4 位；aspirations 最多 3 条
 - 时间线按时间正序排列；资料空白的时间段用 kind: "gap" 显式标注。字段值缺失时用 null 或空串，不要删除字段。
 - 规范化目标（必须原样保留 goal_id 与 polarity，不得自行翻转）：{canonical_goals}
+
+本人锚点（阶段1快照 basic_info）：{self_anchor}
 
 图谱实体与事实如下：
 
@@ -496,7 +500,7 @@ class ProfileSynthesizer:
         traceability_warnings = _backfill_evidence_refs(stage1, manifest)
         traceability_warnings.extend(_validate_sources(stage1, manifest))
 
-        # 阶段2
+        # 阶段2（注入阶段1 basic_info 作本人锚点，防止 relationships 视角漂移把本人列为关系人）
         report("narrative", f"合成叙事分区（{len(narrative_entities)} 个实体）")
         stage2 = _chat_json_with_retry(
             self.llm,
@@ -509,6 +513,7 @@ class ProfileSynthesizer:
                         + evidence_context
                     ),
                     canonical_goals=json.dumps(goals or [], ensure_ascii=False),
+                    self_anchor=json.dumps(stage1.get("basic_info") or {}, ensure_ascii=False),
                 )},
             ],
             max_tokens=8192,

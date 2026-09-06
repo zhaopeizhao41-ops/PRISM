@@ -14,7 +14,7 @@ PERSON_ONTOLOGY: Dict[str, Any] = {
     "entity_types": [
         {
             "name": "Person",
-            "description": "The profile owner and every real person related to them (family, friends, colleagues, mentors).",
+            "description": "Real people who directly interact with the profile owner (family, friends, colleagues, mentors, neighbors). Exclude: people only mentioned, discussed or read about but never met in person (celebrities, historical or fictional figures), generic figures inside metaphors or daydreams, and non-human objects.",
             "attributes": [
                 {"name": "full_name", "type": "text", "description": "Name or nickname"},
                 {"name": "relation_kind", "type": "text", "description": "self / family / friend / colleague / mentor / other"},

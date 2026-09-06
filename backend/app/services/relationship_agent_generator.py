@@ -27,9 +27,17 @@ logger = get_logger('prism.relationship.generator')
 # 允许生成 Agent 的关系类型
 ALLOWED_RELATION_KINDS = {"family", "friend", "colleague", "acquaintance", "mentor", "rival", "other"}
 # 自我指称的实体名（排除在候选之外）
-SELF_NAMES = {"user", "用户", "本人", "我", "self"}
+# 注：Zep 分块抽取时叙述者代称五花八门（我/本人/the speaker/the User），统一进硬名单
+SELF_NAMES = {
+    "user", "用户", "本人", "我", "self",
+    "the user", "the speaker", "the narrator", "the author",
+    "叙述者", "作者", "笔者",
+}
 # 入选所需最少关联事实数
 MIN_FACT_COUNT = 2
+# 叙述者标识词：真 self 节点的 summary 常被 Zep 归一化标注（如 "The narrator, 涓生"），
+# 命中即视为叙述者别名，画像豁免对它无效
+_NARRATOR_MARKERS = ("narrator", "speaker", "the user", "叙述者", "作者", "笔者")
 
 
 def _is_transient_api_error(error: Exception) -> bool:
@@ -147,6 +155,59 @@ def _relation_kind_of(entity: EntityNode) -> Optional[str]:
     return "other"
 
 
+def _has_narrator_marker(entity: EntityNode) -> bool:
+    """节点名或 summary 命中叙述者标识词（如 "The narrator, 涓生"）。"""
+    text = f"{entity.name} {entity.summary or ''}".lower()
+    return any(marker in text for marker in _NARRATOR_MARKERS)
+
+
+def _is_self_entity(entity: EntityNode, model_rel_names) -> bool:
+    """self 三信号判定（Zep 的 relation_kind=self 分块归一化噪声常见）：
+
+    1. 名字命中 SELF_NAMES 硬名单（我/本人/the speaker 等通用代称）→ self；
+    2. summary 命中叙述者标识词（"The narrator, 涓生"）→ self（画像豁免无效）；
+    3. relation_kind=self 且画像 relationships 未将其列为关系人 → self；
+       画像明确列为关系人 → 判定为 Zep 误标（被大量记述的核心关系人），非 self。
+    """
+    name = (entity.name or "").strip()
+    if not name or name.lower() in SELF_NAMES:
+        return True
+    if str((entity.attributes or {}).get("relation_kind", "") or "").strip().lower() != "self":
+        return False
+    if _has_narrator_marker(entity):
+        return True
+    return name not in model_rel_names
+
+
+# 「谈论/画像」类事实模式：被谈论的第三方（名人/文学形象）只有这类事实，无直接互动
+_MENTION_FACT_PATTERNS = (
+    r"\bdiscuss", r"\bmention", r"talked about", r"talks about", r"\bspoke of",
+    r"谈论|谈及|谈到|提到|提及|说起",
+    r"portrait|poster|pinned on the wall|picture of",
+    r"半身像|画像|肖像|照片",
+)
+
+
+def _is_noise_entity(entity: EntityNode) -> Optional[str]:
+    """噪声候选判定（返回原因，None = 非噪声）。
+
+    Zep 分块抽取会把非关系人错标为 Person：
+    1. 物品（书/信/照片…）→ 单字 CJK 名（中文人名至少两字）；
+    2. 被谈论的第三方（雪莱/泰戈尔等名人、文学形象）→ 全部事实均为谈论/画像类，
+       与本人无任何直接互动（对照：真人事实含 informed/told/released 等互动动词）。
+    """
+    name = (entity.name or "").strip()
+    if len(name) == 1 and re.match(r"[\u4e00-\u9fff]", name):
+        return "single_char_object"
+    facts = _facts_of(entity)
+    if facts and all(
+        any(re.search(p, f, re.IGNORECASE) for p in _MENTION_FACT_PATTERNS)
+        for f in facts
+    ):
+        return "mention_only"
+    return None
+
+
 class RelationshipAgentGenerator:
     """关系人人格卡生成器"""
 
@@ -164,8 +225,9 @@ class RelationshipAgentGenerator:
         """
         扫描图谱 Person 实体，识别可生成 Agent 的关系人候选。
 
-        规则：排除 self；relation_kind ∈ {family, friend, colleague}；
-        关联事实 ≥ 2 条。与 personal_model.relationships 交叉补充 closeness/influence。
+        self 判定见 _is_self_entity（三信号防御：硬名单 / 叙述者标识词 / 画像豁免）；
+        噪声过滤见 _is_noise_entity（单字物品 / 纯谈论第三方）。
+        与 personal_model.relationships 交叉补充 closeness/influence。
         """
         filtered = self.reader.filter_defined_entities(
             graph_id=graph_id,
@@ -177,14 +239,16 @@ class RelationshipAgentGenerator:
             for r in (personal_model.get("relationships") or [])
             if isinstance(r, dict)
         }
+        entities_by_name = {(e.name or "").strip(): e for e in filtered.entities if (e.name or "").strip()}
 
         candidates: List[Dict[str, Any]] = []
         for entity in filtered.entities:
             name = (entity.name or "").strip()
-            if not name or name.lower() in SELF_NAMES:
+            if _is_self_entity(entity, model_rels):
                 continue
-            attrs = entity.attributes or {}
-            if str(attrs.get("relation_kind", "")).strip().lower() == "self":
+            noise_reason = _is_noise_entity(entity)
+            if noise_reason:
+                logger.info(f"过滤噪声关系人候选: name={name}, reason={noise_reason}")
                 continue
 
             relation_kind = _relation_kind_of(entity)
@@ -213,6 +277,11 @@ class RelationshipAgentGenerator:
         existing_names = {c["person_name"] for c in candidates}
         for name, rel in model_rels.items():
             if not name or name.lower() in SELF_NAMES or name in existing_names:
+                continue
+            # 画像把图谱 self 节点列为关系人 → 多为画像视角漂移（把本人当关系人），不引入；
+            # 误标但事实不足的节点（非 self 判定）允许以 profile_only 补充
+            graph_entity = entities_by_name.get(name)
+            if graph_entity is not None and _is_self_entity(graph_entity, model_rels):
                 continue
             candidates.append({
                 "person_name": name,
